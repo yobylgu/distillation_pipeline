@@ -19,8 +19,8 @@ Usage:
     # Mode 2: Evaluate both teacher and student with comparison
     python evaluation/evaluate_assertions.py \
         --teacher_data data/codet5p-focal-methods/distillation_data_validation.jsonl \
-        --student_model_path results/test_2025-06-06_17-11-03_Salesforce-codet5p-220m/final_model \
-        --student_limit 100
+        --student_model_path results/extended_trident_7h/2025-06-10_08-30-50_Salesforce-codet5p-220m/final_model \
+        --student_limit 200
 """
 
 import json
@@ -104,22 +104,61 @@ def evaluate_model(predictions: List[str], references: List[List[str]]) -> Dict[
 
     # Basic metrics
     f1, precision, recall = compute_f1_precision_recall(predictions, references)
-    results['f1'] = f1
-    results['precision'] = precision
-    results['recall'] = recall
+    results['f1'] = round(f1, 7)
+    results['precision'] = round(precision, 7)
+    results['recall'] = round(recall, 7)
 
     # AST validity rate
-    results['ast_validity'] = evaluator.evaluate_ast_validity(predictions)
+    results['ast_validity'] = round(evaluator.evaluate_ast_validity(predictions), 7)
 
     # PANS score (semantic equivalence)
-    results['pans'] = compute_pans_score(predictions, references)
+    results['pans'] = round(compute_pans_score(predictions, references), 7)
 
     # CodeBLEU score
     codebleu_scores = []
     for pred, refs in zip(predictions, references):
         score = compute_codebleu(refs, pred)
         codebleu_scores.append(score)
-    results['codebleu'] = sum(codebleu_scores) / len(codebleu_scores) if codebleu_scores else 0.0
+    results['codebleu'] = round(sum(codebleu_scores) / len(codebleu_scores) if codebleu_scores else 0.0, 7)
+
+    # Additional metrics to match student evaluation
+    # Token accuracy (exact match)
+    exact_matches = 0
+    for pred, refs in zip(predictions, references):
+        if any(pred.strip() == ref.strip() for ref in refs):
+            exact_matches += 1
+    results['token_accuracy'] = round(exact_matches / len(predictions), 7)
+    results['exact_match_total'] = exact_matches
+    results['exact_match_ratio'] = round(exact_matches / len(predictions), 7)
+
+    # Semantic similarity (using PANS as proxy, but could be enhanced)
+    results['semantic_similarity'] = round(results['pans'], 7)
+
+    # General similarity score (average of multiple similarity measures)
+    similarity_scores = []
+    for pred, refs in zip(predictions, references):
+        # Use the best reference for similarity
+        best_sim = 0
+        for ref in refs:
+            # Simple token-based similarity
+            pred_tokens = set(pred.split())
+            ref_tokens = set(ref.split())
+            if pred_tokens or ref_tokens:
+                jaccard_sim = len(pred_tokens & ref_tokens) / len(pred_tokens | ref_tokens)
+                best_sim = max(best_sim, jaccard_sim)
+        similarity_scores.append(best_sim)
+    results['similarity'] = round(sum(similarity_scores) / len(similarity_scores) if similarity_scores else 0.0, 7)
+
+    # Code quality score (composite of AST validity and semantic similarity)
+    results['code_quality_score'] = round((results['ast_validity'] + results['semantic_similarity']) / 2, 7)
+
+    # Average prediction and reference lengths
+    results['avg_prediction_length'] = round(sum(len(pred.split()) for pred in predictions) / len(predictions), 7)
+    avg_ref_lengths = []
+    for refs in references:
+        avg_ref_length = sum(len(ref.split()) for ref in refs) / len(refs)
+        avg_ref_lengths.append(avg_ref_length)
+    results['avg_reference_length'] = round(sum(avg_ref_lengths) / len(avg_ref_lengths), 7)
 
     return results
 
@@ -167,11 +206,19 @@ def main():
     print("\n=== TEACHER MODEL EVALUATION ===")
     teacher_results = evaluate_model(teacher_predictions, ground_truth_references)
     print(f"AST Validity Rate: {teacher_results['ast_validity']*100:.1f}%")
-    print(f"Semantic Equivalence Score (PANS): {teacher_results['pans']:.3f}")
-    print(f"CodeBLEU Score: {teacher_results['codebleu']:.3f}")
-    print(f"F1-Score: {teacher_results['f1']:.3f}")
-    print(f"Precision: {teacher_results['precision']:.3f}")
-    print(f"Recall: {teacher_results['recall']:.3f}")
+    print(f"Semantic Equivalence Score (PANS): {teacher_results['pans']:.7f}")
+    print(f"CodeBLEU Score: {teacher_results['codebleu']:.7f}")
+    print(f"F1-Score: {teacher_results['f1']:.7f}")
+    print(f"Precision: {teacher_results['precision']:.7f}")
+    print(f"Recall: {teacher_results['recall']:.7f}")
+    print(f"Token Accuracy: {teacher_results['token_accuracy']:.7f}")
+    print(f"Semantic Similarity: {teacher_results['semantic_similarity']:.7f}")
+    print(f"Similarity: {teacher_results['similarity']:.7f}")
+    print(f"Code Quality Score: {teacher_results['code_quality_score']:.7f}")
+    print(f"Exact Match Total: {teacher_results['exact_match_total']}")
+    print(f"Exact Match Ratio: {teacher_results['exact_match_ratio']:.7f}")
+    print(f"Avg Prediction Length: {teacher_results['avg_prediction_length']:.7f}")
+    print(f"Avg Reference Length: {teacher_results['avg_reference_length']:.7f}")
 
     # Student evaluation if a model path is provided
     if args.student_model_path:
@@ -205,50 +252,97 @@ def main():
             device=args.device,
             use_enhanced_metrics=True
         )
+        
+        # Remove bleu and standardize student metrics to 7 decimals
+        if 'bleu' in metrics:
+            del metrics['bleu']
+        
+        # Rename accuracy to token_accuracy if it exists
+        if 'accuracy' in metrics:
+            metrics['token_accuracy'] = metrics.pop('accuracy')
+        
+        # Round all student metrics to 7 decimals
+        for key, value in metrics.items():
+            if isinstance(value, float):
+                metrics[key] = round(value, 7)
+
         print("\n=== STUDENT MODEL EVALUATION ===")
         print(f"AST Validity Rate: {metrics['ast_validity']*100:.1f}%")
-        print(f"Semantic Equivalence Score (PANS): {metrics['pans']:.3f}")
+        print(f"Semantic Equivalence Score (PANS): {metrics['pans']:.7f}")
         print(f"CodeBLEU Score: {metrics['codebleu']:.7f}")
-        print(f"F1-Score: {metrics['f1']:.3f}")
-        print(f"Precision: {metrics['precision']:.3f}")
-        print(f"Recall: {metrics['recall']:.3f}")
+        print(f"F1-Score: {metrics['f1']:.7f}")
+        print(f"Precision: {metrics['precision']:.7f}")
+        print(f"Recall: {metrics['recall']:.7f}")
+        print(f"Token Accuracy: {metrics['token_accuracy']:.7f}")
+        print(f"Semantic Similarity: {metrics['semantic_similarity']:.7f}")
+        print(f"Similarity: {metrics['similarity']:.7f}")
+        print(f"Code Quality Score: {metrics['code_quality_score']:.7f}")
+        print(f"Exact Match Total: {metrics['exact_match_total']}")
+        print(f"Exact Match Ratio: {metrics['exact_match_ratio']:.7f}")
+        print(f"Avg Prediction Length: {metrics['avg_prediction_length']:.7f}")
+        print(f"Avg Reference Length: {metrics['avg_reference_length']:.7f}")
         
         # === DETAILED COMPARISON SUMMARY ===
         print("\n=== DETAILED COMPARISON SUMMARY ===")
         # Performance Metrics
         print("📈 Performance Metrics:")
-        for key, label in [('f1', 'F1-Score'), ('precision', 'Precision'), ('recall', 'Recall')]:
-            t = teacher_results[key]
-            s = metrics[key]
-            gap = (s - t) * 100
-            print(f"   ├─ {label} Gap: {gap:+.1f}% ({s:.3f} vs {t:.3f})")
+        for key, label in [('f1', 'F1-Score'), ('precision', 'Precision'), ('recall', 'Recall'), ('token_accuracy', 'Token Accuracy')]:
+            if key in teacher_results and key in metrics:
+                t = teacher_results[key]
+                s = metrics[key]
+                if t > 0:
+                    gap_percent = ((s - t) / t) * 100
+                    print(f"   ├─ {label} Gap: {gap_percent:+.1f}% ({s:.7f} vs {t:.7f})")
+                else:
+                    gap_absolute = s - t
+                    print(f"   ├─ {label} Gap: {gap_absolute:+.7f} ({s:.7f} vs {t:.7f})")
         
         # Code Quality Metrics
         print("\n🔧 Code Quality Metrics:")
-        # AST validity as percentage
+        # AST validity as percentage points
         t_ast, s_ast = teacher_results['ast_validity'], metrics['ast_validity']
-        gap_ast = (s_ast - t_ast) * 100
-        print(f"   ├─ AST Validity Gap: {gap_ast:+.1f}% ({s_ast*100:.1f}% vs {t_ast*100:.1f}%)")
-        for key in ['codebleu', 'pans']:
-            t, s = teacher_results[key], metrics[key]
-            gap = s - t
-            print(f"   ├─ {key.upper()} Gap: {gap:+.3f} ({s:.3f} vs {t:.3f})")
+        gap_ast = (s_ast - t_ast) * 100  # percentage points difference
+        print(f"   ├─ AST Validity Gap: {gap_ast:+.1f} percentage points ({s_ast*100:.1f}% vs {t_ast*100:.1f}%)")
+        for key in ['codebleu', 'pans', 'semantic_similarity', 'similarity', 'code_quality_score']:
+            if key in teacher_results and key in metrics:
+                t, s = teacher_results[key], metrics[key]
+                if t > 0:
+                    gap_percent = ((s - t) / t) * 100
+                    print(f"   ├─ {key.upper()} Gap: {gap_percent:+.1f}% ({s:.7f} vs {t:.7f})")
+                else:
+                    gap_absolute = s - t
+                    print(f"   ├─ {key.upper()} Gap: {gap_absolute:+.7f} ({s:.7f} vs {t:.7f})")
         
-        # Knowledge Transfer Assessment
-        print("\n🎯 Knowledge Transfer Assessment:")
-        krs = metrics.get('krs', metrics.get('knowledge_retention_score', 0.0))
-        print(f"   ├─ Overall KRS: {krs*100:.1f}%")
-        efficiency = krs * 100
-        emoji = "💀 Very Poor (<30%)" if efficiency < 30 else "👍 Good (>=30%)"
-        print(f"   ├─ Transfer Efficiency: {emoji}")
-        print("   └─ Recommendations:")
-        print("      • Consider increasing distillation temperature or alpha")
-        print("      • Improve semantic similarity training")
-        print("      • Review overall distillation strategy")
+        # Additional Metrics
+        print("\n📊 Additional Metrics:")
+        for key in ['exact_match_ratio', 'avg_prediction_length', 'avg_reference_length']:
+            if key in teacher_results and key in metrics:
+                t, s = teacher_results[key], metrics[key]
+                if t > 0:
+                    gap_percent = ((s - t) / t) * 100
+                    print(f"   ├─ {key.replace('_', ' ').title()} Gap: {gap_percent:+.1f}% ({s:.7f} vs {t:.7f})")
+                else:
+                    gap_absolute = s - t
+                    print(f"   ├─ {key.replace('_', ' ').title()} Gap: {gap_absolute:+.7f} ({s:.7f} vs {t:.7f})")
         
+        # Exact match counts
+        if 'exact_match_total' in teacher_results and 'exact_match_total' in metrics:
+            t_total, s_total = teacher_results['exact_match_total'], metrics['exact_match_total']
+            gap_total = s_total - t_total
+            print(f"   ├─ Exact Match Total Gap: {gap_total:+d} ({s_total} vs {t_total})")
+
         # Export metrics JSON
-        results_dict = {'teacher': teacher_results, 'student': metrics,
-                        'gap': {k: (metrics[k] - teacher_results[k]) for k in teacher_results}}
+        # Calculate gaps for all common metrics
+        gap_dict = {}
+        for key in teacher_results:
+            if key in metrics:
+                gap_dict[key] = round(metrics[key] - teacher_results[key], 7)
+        
+        results_dict = {
+            'teacher': teacher_results, 
+            'student': metrics,
+            'gap': gap_dict
+        }
         
         metrics_file = os.path.join(output_dir, 'evaluation_metrics.json')
         with open(metrics_file, 'w') as f:

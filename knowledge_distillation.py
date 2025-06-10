@@ -70,6 +70,8 @@ from utils.training_utils import get_dynamic_hyperparams, setup_loss_function
 from utils.device_utils import setup_device
 from utils.command_utils import log_training_command, save_training_config_to_json
 from config import *
+# NEW: Import token weighting defaults (Task 4.2)
+from config.defaults import DEFAULT_CRITICAL_TOKEN_WEIGHT
 
 
 def check_tensor_validity(tensor, name, logger, step=None):
@@ -157,6 +159,10 @@ def parse_arguments():
     # MODIFICATION: Arguments from v2 for regularization and dynamic weighting
     parser.add_argument('--dropout_rate', type=float, default=0.1, help='Dropout rate for regularization')
     parser.add_argument('--enable_dynamic_weighting', action='store_true', help='Enable dynamic weight scheduling for multi-component loss')
+    
+    # NEW: Token-specific weighting arguments (Task 4.2)
+    parser.add_argument('--enable_token_weighting', action='store_true', help='Enable token-specific weighting for critical assertion tokens')
+    parser.add_argument('--critical_token_weight', type=float, default=DEFAULT_CRITICAL_TOKEN_WEIGHT, help='Weight multiplier for critical tokens (default 2.0)')
     
     # Other arguments
     parser.add_argument('--use_enhanced_metrics', action='store_true', help='Use enhanced assertion evaluation metrics')
@@ -283,6 +289,15 @@ def train_epoch(model, train_loader, optimizer, scheduler, logger, loss_fn, mult
             
         loss = loss / args.gradient_accumulation_steps
         loss.backward()
+        
+        # NEW: Log detailed step metrics including gradient norms (Task 3.1)
+        mini_batch_idx = step % args.gradient_accumulation_steps
+        effective_batch_size = args.batch_size * args.gradient_accumulation_steps
+        logger.log_step_detailed(
+            epoch+1, step, mini_batch_idx, loss_components, 
+            {'temperature': temperature, 'alpha': alpha},
+            optimizer, model, effective_batch_size
+        )
 
         if (step + 1) % args.gradient_accumulation_steps == 0:
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=DEFAULT_MAX_GRAD_NORM)

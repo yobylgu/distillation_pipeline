@@ -54,6 +54,53 @@ Target model: **CodeT5p-220 M** distilled from **CodeT5p-770 M**.
 2. Expose all scalars via TensorBoard.  
 3. Add README section **“Interpreting loss-scale logs”**.
 
+### 4 ▪ Token-Specific Weighting (MEDIUM)  
+*Dependencies – none; recommended after 1*
+1. Curate `CRITICAL_TOKENS` list. Based on model output analysis, this list should prioritize tokens that define the assertion's core logic and structure.
+
+    **CRITICAL_TOKENS List:**
+
+    *   **Core Assertion Methods (JUnit & AssertJ):** These are the primary verbs of the test and are non-negotiable.
+        *   `assertEquals`
+        *   `assertTrue`
+        *   `assertFalse`
+        *   `assertNotNull`
+        *   `assertNull`
+        *   `assertSame`
+        *   `assertNotSame`
+        *   `assertThrows`
+        *   `assertThat`
+    *   **Core Matcher Methods (Hamcrest & AssertJ):** These tokens define the type of comparison being made and are essential for logical correctness.
+        *   `is`
+        *   `equalTo`
+        *   `not`
+        *   `nullValue`
+        *   `notNullValue`
+        *   `containsString`
+        *   `hasSize`
+        *   `instanceOf`
+        *   `sameInstance`
+    *   **Logical Keywords and Operators:** These are the fundamental building blocks of the boolean logic within an assertion.
+        *   `true`
+        *   `false`
+        *   `null`
+        *   `==`
+        *   `!=`
+        *   `>`
+        *   `>=`
+        *   `<`
+        *   `<=`
+    *   **Structural Tokens:** While common, getting these wrong leads to immediate syntax errors (AST Validity will drop). Emphasizing them ensures the model learns correct structure.
+        *   `(`
+        *   `)`
+        *   `;`
+        *   `.`
+        *   `,`
+2. Map to vocab indices; build weight tensor; expose CLI param `critical_token_weight` (default 2).  
+3. Modify CE/focal loss to accept per-token weights.  
+4. Unit test: loss penalty doubles when critical token mismatched.  
+5. Benchmark: critical-token accuracy +2 pp.
+
 ---
 
 ## Acceptance Criteria

@@ -43,7 +43,11 @@ DEFAULT_SHUFFLE_EVAL = False
 
 # Loss function configurations
 LOSS_FUNCTION_CHOICES = ['traditional', 'enhanced', 'ast_enhanced', 'multi_component']
-LOSS_COMPONENT_CHOICES = ['ce', 'kl', 'pans', 'ast', 'focal', 'jsd', 'semantic']
+LOSS_COMPONENT_CHOICES = ['ce', 'kl', 'pans', 'ast', 'focal', 'jsd', 'semantic', 'contrastive']
+
+# Contrastive learning parameters (Task 2 - PRD v1)
+DEFAULT_CONTRASTIVE_WEIGHT = 0.1  # Initial contrastive weight
+DEFAULT_CONTRASTIVE_TEMPERATURE = 0.1  # InfoNCE temperature
 
 # Default weights for multi-component loss
 DEFAULT_LOSS_WEIGHTS = {
@@ -53,12 +57,27 @@ DEFAULT_LOSS_WEIGHTS = {
     'ast': 0.05,
     'focal': 0.45,  # Similar weight to CE for basic classification
     'jsd': 0.4,     # Similar weight to KL for knowledge distillation
-    'semantic': 0.15  # Moderate weight for semantic similarity
+    'semantic': 0.15,  # Moderate weight for semantic similarity
+    'contrastive': 0.1  # Initial contrastive weight (PRD v1)
 }
 
 # Enhanced loss weights
 DEFAULT_PANS_WEIGHT = 0.12
 DEFAULT_AST_WEIGHT = 0.2
+
+# Semantic loss scaling parameter (β) for balanced gradient magnitudes
+# Controls the scaling of semantic similarity loss: scaled_sem = β × semantic_loss
+# Higher values increase the impact of semantic similarity in training
+DEFAULT_SEMANTIC_LOSS_SCALE = 5.0  # β parameter from PRD v1
+
+# Semantic loss scaling configuration
+SEMANTIC_SCALING_PARAMS = {
+    'enabled': True,  # Enable semantic loss scaling
+    'scale_factor': DEFAULT_SEMANTIC_LOSS_SCALE,  # β parameter
+    'adaptive': False,  # Future: adaptive scaling based on training progress
+    'min_scale': 1.0,   # Minimum scaling factor
+    'max_scale': 10.0   # Maximum scaling factor
+}
 
 # Dynamic weight scheduling for multi-component loss (AGGRESSIVE PRESET - DEFAULT)
 # This preset emphasizes knowledge distillation (KL) over cross-entropy throughout training
@@ -80,6 +99,10 @@ WEIGHT_SCHEDULING = {
     'ast': {
         'start': 0.0,   # No initial AST penalty
         'end': 0.15     # Moderate AST growth for syntax
+    },
+    'contrastive': {
+        'start': 0.1,   # PRD v1: Start with moderate contrastive weight
+        'end': 0.2      # PRD v1: Increase to strengthen contrastive learning
     }
 }
 
@@ -414,4 +437,20 @@ TUNING_GUIDELINES = {
             'ast_weight': 0.15
         }
     }
+}
+
+# ============================================================================
+# TOKEN-SPECIFIC WEIGHTING PARAMETERS (Task 4 - PRD v1)
+# ============================================================================
+
+# Critical token weighting for enhanced assertion generation
+DEFAULT_CRITICAL_TOKEN_WEIGHT = 2.0  # Weight multiplier for critical assertion tokens
+DEFAULT_ENABLE_TOKEN_WEIGHTING = False  # Enable token-specific weighting by default
+
+# Token weighting configuration
+TOKEN_WEIGHTING_PARAMS = {
+    'critical_token_weight': DEFAULT_CRITICAL_TOKEN_WEIGHT,  # Tune: 1.5-4.0. Higher = more focus on critical tokens
+    'enable_token_weighting': DEFAULT_ENABLE_TOKEN_WEIGHTING,  # Whether to enable token-specific weighting
+    'cache_token_mappings': True,  # Cache token-to-vocab mappings for performance
+    'apply_to_loss_functions': ['ce', 'focal'],  # Which loss functions use token weighting
 }

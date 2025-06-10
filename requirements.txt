@@ -41,6 +41,13 @@ docker>=6.0.0
 javalang>=0.13.0
 pytest>=7.0.0
 
+# Contrastive learning support (Task 2 - PRD v1)
+# CodeBERT encoder support via transformers (already included above)
+# No additional dependencies needed for microsoft/codebert-base
+
 # Additional utilities
 structlog>=22.0.0
 click>=8.0.0
+
+# TensorBoard logging (Task 3.2)
+tensorboard>=2.12.0

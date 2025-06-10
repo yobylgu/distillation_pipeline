@@ -95,6 +95,7 @@ The pipeline supports sophisticated multi-component loss functions, now featurin
 - **Focal Loss**: Replaces standard CE, focuses on hard-to-classify examples
 - **Jensen-Shannon Divergence (JSD)**: Stable, symmetric alternative to KL divergence
 - **Semantic Similarity**: Uses sentence transformers for semantic correctness
+- **Contrastive Learning**: NEW - InfoNCE loss with CodeBERT embeddings for code understanding
 - **PANS**: Position-Aware N-gram Similarity for code quality
 - **AST**: Abstract Syntax Tree validity penalty
 
@@ -176,10 +177,33 @@ results/YYYY-MM-DD_HH-MM-SS_model-name/
 ├── final_model/                    # Saved student model
 ├── best_model/                     # Best checkpoint (early stopping)
 ├── training_metrics.csv            # Step-by-step training metrics
+├── step_metrics.csv               # NEW: Detailed per-step metrics with gradient norms
+├── tensorboard/                   # NEW: TensorBoard logs for visualization
 ├── distillation_log.txt           # Complete training logs
 ├── predictions_final.jsonl        # Model predictions
 └── metrics_summary_final.json     # Evaluation summary
 ```
+
+## New Features (PRD v1 Implementation)
+
+### Contrastive Learning
+- **CodeBERT Integration**: Frozen microsoft/codebert-base encoder for code embeddings
+- **Triplet Sampling**: In-batch sampling (anchor=gold, positive=student, negative=other)
+- **InfoNCE Loss**: Stable contrastive objective with temperature=0.1
+- **Embedding Cache**: LRU cache with TTL for performance optimization
+- **Weight Scheduling**: 0.1 → 0.2 dynamic weighting during training
+
+### Enhanced Logging & Monitoring
+- **Step Metrics CSV**: Detailed per-step logging with gradient norms and system metrics
+- **TensorBoard Integration**: Real-time visualization of all scalars and metrics
+- **Component Tracking**: Raw vs weighted loss values with metadata
+- **Memory Monitoring**: System memory usage and performance tracking
+- **Gradient Analysis**: Encoder/decoder gradient norm monitoring
+
+### Semantic Loss Scaling
+- **β Parameter**: Configurable semantic loss scaling (default 5.0)
+- **Balanced Training**: Ensures semantic loss contributes meaningfully to gradients
+- **Analysis Tools**: scripts/analyse_loss_scaling.py for optimization guidance
 
 ## Modular Architecture
 

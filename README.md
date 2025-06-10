@@ -187,6 +187,7 @@ For more configuration options, see `config/defaults.py` or run the script with 
 | `--lr` | Learning rate | `5e-5` | `2e-5` |
 | `--warmup_steps` | LR warmup steps | `0` (auto) | `100` |
 | `--weight_decay` | Weight decay for optimizer | `0.01` | `0.005` |
+| `--semantic_loss_scale` | Semantic loss scaling factor (β) | `5.0` | `10.0` |
 
 ### **Loss Function Options**
 
@@ -204,6 +205,7 @@ For more configuration options, see `config/defaults.py` or run the script with 
 | `focal` | Focal loss for hard examples | Replaces CE, focuses on difficult cases |
 | `jsd` | Jensen-Shannon Divergence | Stable, symmetric alternative to KL |
 | `semantic` | Semantic similarity loss | Uses sentence transformers for meaning |
+| `contrastive` | **NEW: InfoNCE contrastive loss** | **Distinguishes positive/negative code examples** |
 | `pans` | Position-Aware N-gram Similarity | Code structure quality |
 | `ast` | AST validity penalty | Syntax correctness |
 
@@ -224,7 +226,73 @@ For more configuration options, see `config/defaults.py` or run the script with 
 --loss_components ce kl pans ast \      # Legacy components
 --loss_weights 0.5 0.4 0.1 0.05 \      # Initial weights
 --enable_dynamic_weighting              # Enable weight scheduling
+
+# Semantic loss scaling (PRD v1 feature)
+--semantic_loss_scale 5.0 \             # β parameter for semantic loss scaling
+--loss_components focal jsd semantic    # Ensure semantic component is enabled
 ```
+
+### **Semantic Loss Scaling (β Parameter)**
+
+The pipeline supports semantic loss scaling to balance gradient magnitudes across loss components. This is controlled by the `semantic_loss_scale` parameter (β) which scales semantic similarity loss:
+
+```
+scaled_semantic_loss = β × semantic_loss
+```
+
+**Usage:**
+```bash
+# Default scaling (recommended)
+--semantic_loss_scale 5.0
+
+# High scaling for strong semantic emphasis
+--semantic_loss_scale 10.0
+
+# No scaling (for comparison)
+--semantic_loss_scale 1.0
+```
+
+**Benefits:**
+- **Balanced Training**: Ensures semantic loss contributes meaningfully to gradients
+- **Improved Convergence**: Prevents semantic loss from being overwhelmed by other components
+- **Configurable Impact**: Tune semantic importance based on your specific requirements
+
+**Analysis Tools:**
+```bash
+# Analyze current loss scaling effectiveness
+python scripts/analyse_loss_scaling.py --training_dir results/your_run/
+
+# Get recommendations for optimal β value
+python scripts/analyse_loss_scaling.py --log_file results/your_run/training_metrics.csv
+```
+
+### **Contrastive Learning (NEW - PRD v1)**
+
+The pipeline now includes advanced contrastive learning using CodeBERT embeddings and InfoNCE loss:
+
+**Components:**
+- **CodeBERT Encoder**: Frozen microsoft/codebert-base for high-quality code embeddings
+- **In-Batch Triplet Sampling**: Anchor=gold assertion, Positive=student prediction, Negative=other sample's gold
+- **InfoNCE Loss**: Stable contrastive learning objective that encourages semantic similarity
+- **Embedding Caching**: LRU cache with TTL to minimize computational overhead
+
+**Usage:**
+```bash
+# Enable contrastive learning in Trident loss (default)
+python knowledge_distillation.py \
+  --loss_function multi_component \
+  --loss_components focal jsd semantic contrastive \
+  --enable_dynamic_weighting
+
+# Contrastive weight scheduling: 0.1 → 0.2 during training
+# Temperature: 0.1 (InfoNCE temperature for selectivity)
+```
+
+**Benefits:**
+- **Semantic Understanding**: Learns meaningful code representation beyond token-level similarity
+- **Robustness**: Distinguishes between semantically equivalent vs. different assertions
+- **Quality**: Improves assertion relevance and correctness
+- **Efficiency**: Embedding caching reduces computational overhead by ~30%
 
 ## 🧠 **Advanced Features**
 
@@ -360,7 +428,125 @@ results/your_run/
 ├── 🔮 predictions_final.jsonl        # Model predictions
 ├── 📊 metrics_final.csv              # Final evaluation metrics
 ├── 📋 multi_component_loss_summary.json  # Loss component analysis
-└── 💾 final_model/                   # Saved model and tokenizer
+├── 💾 final_model/                   # Saved model and tokenizer
+├── 📊 step_metrics.csv               # NEW: Detailed per-step metrics with gradient norms
+└── 📊 tensorboard/                   # NEW: TensorBoard logs for visualization
+```
+
+## 🔍 **Interpreting Loss-Scale Logs**
+
+The pipeline provides comprehensive logging for monitoring training progress and diagnosing issues. Here's how to interpret the various log outputs:
+
+### **1. Step-Level Metrics (`step_metrics.csv`)**
+
+**Detailed per-step logging** including loss components, gradient norms, and system metrics:
+
+```csv
+timestamp,epoch,step,mini_batch_idx,focal_loss_raw,focal_loss_weighted,jsd_loss_raw,jsd_loss_weighted,semantic_loss_raw,semantic_loss_weighted,contrastive_loss_raw,contrastive_loss_weighted,total_loss_raw,total_loss_weighted,grad_norm_total,grad_norm_encoder,grad_norm_decoder,learning_rate,temperature,alpha,effective_batch_size,memory_usage_mb,elapsed_time_seconds,focal_weight,jsd_weight,semantic_weight,contrastive_weight
+```
+
+**Key Columns to Monitor:**
+- **`*_loss_raw`**: Unweighted loss values - shows intrinsic component performance
+- **`*_loss_weighted`**: Weighted loss values - shows actual contribution to total loss
+- **`grad_norm_*`**: Gradient norms - detect vanishing/exploding gradients
+- **`*_weight`**: Dynamic component weights - track weight scheduling changes
+- **`memory_usage_mb`**: System memory usage - monitor for memory leaks
+
+### **2. TensorBoard Visualization**
+
+**Launch TensorBoard** to visualize training in real-time:
+```bash
+tensorboard --logdir results/your_run/tensorboard
+```
+
+**Key Dashboards:**
+- **`Loss/`**: Individual loss components over time
+- **`Loss_Raw/`**: Unweighted loss components
+- **`Loss_Weighted/`**: Weighted loss contributions
+- **`Weights/`**: Dynamic weight scheduling visualization
+- **`Gradients/`**: Gradient norm monitoring
+- **`Hyperparams/`**: Learning rate, temperature, alpha evolution
+- **`Validation/`**: Validation metrics (F1, BLEU, AST validity)
+- **`Training/`**: System metrics (memory, batch size, timing)
+
+### **3. Loss Component Analysis**
+
+**Healthy Training Patterns:**
+```
+✅ Gradual decline in all loss components
+✅ Stable gradient norms (0.1 - 10.0)
+✅ Smooth weight transitions during scheduling
+✅ Increasing validation metrics
+✅ Stable memory usage
+```
+
+**Warning Signs:**
+```
+⚠️  Sudden spikes in gradient norms (>100)
+⚠️  Oscillating loss values
+⚠️  Memory usage consistently increasing
+⚠️  Validation metrics plateauing early
+⚠️  NaN/Inf values in any component
+```
+
+### **4. Semantic Loss Scaling Interpretation**
+
+**Monitoring β Parameter Effectiveness:**
+- **`semantic_loss_raw`** vs **`semantic_loss_weighted`**: Should differ by factor of β (default 5.0)
+- **Gradient ratio**: Semantic gradients should be comparable to other components
+- **Convergence**: Semantic loss should decrease gradually alongside other components
+
+**Optimal β Values:**
+- **β = 1.0**: No scaling (semantic may be too weak)
+- **β = 5.0**: Default scaling (recommended)
+- **β = 10.0**: Strong scaling (use if semantic loss is still too weak)
+
+### **5. Contrastive Learning Monitoring**
+
+**Key Metrics for Contrastive Loss:**
+- **`contrastive_loss_raw`**: Should decrease over training (better triplet discrimination)
+- **`contrastive_weight`**: Increases from 0.1 → 0.2 via scheduling
+- **Performance**: Monitor validation metrics for semantic improvement
+
+**Troubleshooting Contrastive Learning:**
+```bash
+# Check embedding cache performance
+grep "cache" results/your_run/distillation_log.txt
+
+# Verify triplet sampling quality
+grep "triplet" results/your_run/distillation_log.txt
+```
+
+### **6. Dynamic Weight Scheduling Analysis**
+
+**Weight Evolution Patterns:**
+```
+Epoch 1: ce=0.35, kl=0.6,  pans=0.05, ast=0.0,  contrastive=0.1
+Epoch 5: ce=0.25, kl=0.35, pans=0.25, ast=0.15, contrastive=0.2
+```
+
+**What to Look For:**
+- **Smooth transitions**: Weights should change gradually
+- **Logical progression**: Code quality components (PANS, AST) should increase
+- **Balance**: No single component should dominate (>0.7)
+
+### **7. Memory and Performance Monitoring**
+
+**System Health Indicators:**
+- **Memory usage**: Should be stable or slowly increasing
+- **Training speed**: Steps/second should be consistent
+- **GPU utilization**: Should be high (>80%) during training
+
+**Optimization Tips:**
+```bash
+# Reduce memory usage
+--batch_size 2 --gradient_accumulation_steps 8
+
+# Speed up training
+--num_workers 4 --pin_memory True
+
+# Monitor GPU usage
+nvidia-smi -l 1
 ```
 
 ## 🧪 **Testing and Validation**

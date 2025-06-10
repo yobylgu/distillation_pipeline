@@ -11,7 +11,7 @@ import torch.nn.functional as F
 import numpy as np
 import math
 from typing import Dict, List, Tuple
-from .loss_functions import compute_pans_loss, compute_ast_penalty, compute_focal_loss, compute_jsd_loss, compute_semantic_loss
+from .loss_functions import compute_pans_loss, compute_ast_penalty, compute_focal_loss, compute_jsd_loss, compute_semantic_loss, compute_contrastive_loss, compute_weighted_cross_entropy
 
 # Import defaults with fallback
 try:
@@ -35,17 +35,24 @@ class MultiComponentLoss:
     
     def __init__(self, components: List[str], weights: List[float], tokenizer=None, 
                  enable_dynamic_weighting: bool = True, custom_scheduling: Dict = None,
-                 sentence_transformer_model=None):
+                 sentence_transformer_model=None, semantic_loss_scale: float = 5.0,
+                 codebert_encoder=None, triplet_sampler=None, contrastive_temperature: float = 0.1,
+                 token_weighter=None):
         """
         Initialize the multi-component loss.
         
         Args:
-            components: List of loss component names ['ce', 'kl', 'pans', 'ast', 'focal', 'jsd', 'semantic']
+            components: List of loss component names ['ce', 'kl', 'pans', 'ast', 'focal', 'jsd', 'semantic', 'contrastive']
             weights: List of corresponding weights for each component (used as fallback)
             tokenizer: Tokenizer needed for text-based loss components
             enable_dynamic_weighting: Whether to enable dynamic weight scheduling
             custom_scheduling: Optional custom scheduling config, defaults to WEIGHT_SCHEDULING
             sentence_transformer_model: Pre-trained sentence transformer model for semantic loss
+            semantic_loss_scale: β parameter for semantic loss scaling (scaled_sem = β × semantic_loss)
+            codebert_encoder: CodeBERT encoder for contrastive learning
+            triplet_sampler: Triplet sampler for contrastive learning
+            contrastive_temperature: Temperature for InfoNCE loss
+            token_weighter: NEW (Task 4.3) - CriticalTokenWeighter for per-token loss weighting
         """
         if len(components) != len(weights):
             raise ValueError("Components and weights must have same length")
@@ -53,6 +60,11 @@ class MultiComponentLoss:
         self.components = components
         self.tokenizer = tokenizer
         self.sentence_transformer_model = sentence_transformer_model
+        self.semantic_loss_scale = semantic_loss_scale  # β parameter for semantic scaling
+        self.codebert_encoder = codebert_encoder  # For contrastive learning
+        self.triplet_sampler = triplet_sampler  # For contrastive learning
+        self.contrastive_temperature = contrastive_temperature  # InfoNCE temperature
+        self.token_weighter = token_weighter  # NEW: For token-specific weighting (Task 4.3)
         self.loss_history = {comp: [] for comp in components}
         self.enable_dynamic_weighting = enable_dynamic_weighting
         self.scheduling_config = custom_scheduling or WEIGHT_SCHEDULING
@@ -81,19 +93,11 @@ class MultiComponentLoss:
         device = student_logits.device
         
         if component == 'ce':
-            # Cross-entropy loss
-            active_mask = (labels != -100)
-            if active_mask.sum() == 0:
-                return torch.tensor(0.0, device=device, requires_grad=True)
-                
-            student_flat = student_logits.view(-1, student_logits.size(-1))
-            labels_flat = labels.view(-1)
-            active_flat = active_mask.view(-1)
-            
-            active_student = student_flat[active_flat]
-            active_labels = labels_flat[active_flat]
-            
-            return F.cross_entropy(active_student, active_labels)
+            # Cross-entropy loss with optional token weighting (Task 4.3)
+            token_weights = None
+            if self.token_weighter is not None:
+                token_weights = self.token_weighter.get_weight_tensor()
+            return compute_weighted_cross_entropy(student_logits, labels, token_weights)
             
         elif component == 'kl':
             # Knowledge distillation loss
@@ -101,9 +105,9 @@ class MultiComponentLoss:
             if active_mask.sum() == 0:
                 return torch.tensor(0.0, device=device, requires_grad=True)
                 
-            student_flat = student_logits.view(-1, student_logits.size(-1))
-            teacher_flat = teacher_logits.view(-1, teacher_logits.size(-1))
-            active_flat = active_mask.view(-1)
+            student_flat = student_logits.reshape(-1, student_logits.size(-1))
+            teacher_flat = teacher_logits.reshape(-1, teacher_logits.size(-1))
+            active_flat = active_mask.reshape(-1)
             
             active_student = student_flat[active_flat]
             active_teacher = teacher_flat[active_flat]
@@ -114,18 +118,24 @@ class MultiComponentLoss:
             return F.kl_div(student_log_probs, teacher_probs, reduction='batchmean') * (T * T)
             
         elif component == 'focal':
-            # Focal Loss - replacement for cross-entropy
-            return compute_focal_loss(student_logits, labels)
+            # Focal Loss - replacement for cross-entropy with optional token weighting (Task 4.3)
+            token_weights = None
+            if self.token_weighter is not None:
+                token_weights = self.token_weighter.get_weight_tensor()
+            return compute_focal_loss(student_logits, labels, token_weights=token_weights)
             
         elif component == 'jsd':
             # Jensen-Shannon Divergence - replacement for KL divergence
             return compute_jsd_loss(student_logits, teacher_logits, T)
             
         elif component == 'semantic':
-            # Semantic similarity loss
+            # Semantic similarity loss with scaling (β parameter)
             if self.tokenizer is None or self.sentence_transformer_model is None:
                 return torch.tensor(0.0, device=device, requires_grad=True)
-            return compute_semantic_loss(student_logits, labels, self.tokenizer, self.sentence_transformer_model)
+            raw_semantic_loss = compute_semantic_loss(student_logits, labels, self.tokenizer, self.sentence_transformer_model)
+            # Apply semantic scaling: scaled_sem = β × semantic_loss
+            scaled_semantic_loss = self.semantic_loss_scale * raw_semantic_loss
+            return scaled_semantic_loss
             
         elif component == 'pans':
             # Position-Aware N-gram Similarity Loss
@@ -140,6 +150,16 @@ class MultiComponentLoss:
             predictions = torch.argmax(student_logits, dim=-1)
             return compute_ast_penalty(predictions, self.tokenizer)
             
+        elif component == 'contrastive':
+            # Contrastive learning loss (InfoNCE)
+            if self.tokenizer is None or self.codebert_encoder is None or self.triplet_sampler is None:
+                return torch.tensor(0.0, device=device, requires_grad=True)
+            return compute_contrastive_loss(
+                student_logits, labels, self.tokenizer, 
+                self.codebert_encoder, self.triplet_sampler,
+                temperature=self.contrastive_temperature
+            )
+            
         else:
             raise ValueError(f"Unknown loss component: {component}")
             
@@ -148,13 +168,16 @@ class MultiComponentLoss:
     
     def compute(self, student_logits: torch.Tensor, teacher_logits: torch.Tensor, 
                 labels: torch.Tensor, T: float = 2.0, alpha: float = 0.5, 
-                **kwargs) -> Tuple[torch.Tensor, Dict[str, float]]:
+                step: int = None, **kwargs) -> Tuple[torch.Tensor, Dict[str, float]]:
         """
         Compute the total loss as a weighted combination of all components.
         
+        Args:
+            step: Current training step for detailed logging
+        
         Returns:
             total_loss: Combined loss value
-            component_losses: Dictionary of individual loss values
+            component_losses: Dictionary of individual loss values with enhanced logging
         """
         device = student_logits.device
         total_loss = torch.tensor(0.0, device=device, requires_grad=True)
@@ -162,6 +185,10 @@ class MultiComponentLoss:
         
         # Move weights to the same device
         weights = self.weights.to(device)
+        
+        # Enhanced logging: track raw scalars per mini-batch
+        raw_component_scalars = {}
+        weighted_component_scalars = {}
         
         for component, weight in zip(self.components, weights):
             try:
@@ -173,14 +200,26 @@ class MultiComponentLoss:
                 if torch.isnan(loss).any() or torch.isinf(loss).any():
                     print(f"Warning: NaN/Inf detected in {component} loss component: {loss}")
                     component_losses[component] = 0.0
+                    raw_component_scalars[component] = 0.0
+                    weighted_component_scalars[component] = 0.0
                     continue
                 
-                component_losses[component] = loss.item() if hasattr(loss, 'item') else float(loss)
+                # Store raw scalar value (before weighting)
+                raw_scalar = loss.item() if hasattr(loss, 'item') else float(loss)
+                raw_component_scalars[component] = raw_scalar
+                
+                # Store weighted scalar value
+                weighted_scalar = (weight * loss).item() if hasattr(weight * loss, 'item') else float(weight * loss)
+                weighted_component_scalars[component] = weighted_scalar
+                
+                component_losses[component] = raw_scalar
                 
                 # Check component loss value after conversion
                 if math.isnan(component_losses[component]) or math.isinf(component_losses[component]):
                     print(f"Warning: NaN/Inf in {component} after conversion: {component_losses[component]}")
                     component_losses[component] = 0.0
+                    raw_component_scalars[component] = 0.0
+                    weighted_component_scalars[component] = 0.0
                     continue
                 
                 total_loss = total_loss + weight * loss
@@ -191,6 +230,8 @@ class MultiComponentLoss:
             except Exception as e:
                 print(f"Warning: Error computing {component} loss: {e}")
                 component_losses[component] = 0.0
+                raw_component_scalars[component] = 0.0
+                weighted_component_scalars[component] = 0.0
         
         # Calculate traditional combined loss for compatibility
         if 'ce' in component_losses and 'kl' in component_losses:
@@ -198,6 +239,16 @@ class MultiComponentLoss:
             component_losses['traditional_total'] = traditional_total
         
         component_losses['total'] = total_loss.item() if hasattr(total_loss, 'item') else float(total_loss)
+        
+        # Enhanced logging metadata
+        component_losses['_meta'] = {
+            'step': step,
+            'raw_scalars': raw_component_scalars,
+            'weighted_scalars': weighted_component_scalars,
+            'weights': {comp: weight.item() for comp, weight in zip(self.components, weights)},
+            'semantic_loss_scale': self.semantic_loss_scale,  # Track β parameter
+            'timestamp': torch.tensor(0.0).item()  # Placeholder for timestamp if needed
+        }
         
         return total_loss, component_losses
     
