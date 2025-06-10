@@ -75,14 +75,15 @@ Automate the generation of Java unit test assertions by fine-tuning a large "tea
 
 ## ✅ Recently Completed
 - [x] **Trident Loss Implementation**: Fully implemented advanced focal + JSD + semantic loss architecture
-- [x] **Default Configuration Update**: Changed default from CE+KL to Trident loss components
+- [x] **Default Configuration Update**: Changed default from traditional to multi_component with Trident loss components
 - [x] **Sentence Transformers Integration**: Added semantic similarity loss using sentence transformers
 - [x] **Documentation Updates**: Updated README.md, CLAUDE.md, and project summary for Trident loss
 - [x] **Backward Compatibility**: Maintained support for legacy loss components (ce, kl, pans, ast)
 - [x] **Rename and consolidate script**: Renamed `knowledge_distillation_v3.py` to `knowledge_distillation.py` as the main training script
 - [x] **Update documentation**: Updated README.md and project summary to reflect current script names  
 - [x] **Remove version references**: Cleaned up all v3 references throughout the codebase
-- [x] **Update utility references**: Updated `command_utils.py` to reference the correct script name 
+- [x] **Update utility references**: Updated `command_utils.py` to reference the correct script name
+- [x] **Documentation Accuracy Fix**: Corrected mismatches between documentation and actual implementation 
 
 ## 🛠️ Project Setup & Dependencies
 - [ ] Review `requirements.txt` for any outdated or unnecessary packages.
@@ -152,6 +153,9 @@ Automate the generation of Java unit test assertions by fine-tuning a large "tea
     *   [x] Provide clear examples for running training and evaluation with different configurations. (Added to README.md)
 - [ ] **Contribution Guidelines**:
     *   [ ] If applicable, add guidelines for contributing to the project.
+- [ ] **Missing Documentation Files**:
+    *   [x] Create or remove references to `demo_advanced_features.py`, `ADVANCED_FEATURES.md`, `MODULARIZATION_COMPLETE.md`, `LICENSE`
+    *   [x] Document actual implementation vs. documented features (See DOCUMENTATION_STATUS.md)
 
 ## ✅ Testing
 - [ ] **Unit Tests**:
