@@ -19,8 +19,8 @@ Usage:
     # Mode 2: Evaluate both teacher and student with comparison
     python evaluation/evaluate_assertions.py \
         --teacher_data data/codet5p-focal-methods/distillation_data_validation.jsonl \
-        --student_model_path results/test_2025-06-06_17-11-03_Salesforce-codet5p-220m/final_model \
-        --student_limit 100
+        --student_model_path results/extended_trident_7h/2025-06-10_08-30-50_Salesforce-codet5p-220m/final_model \
+        --student_limit 500
 """
 
 import json
