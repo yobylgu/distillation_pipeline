@@ -1,10 +1,5 @@
 """
-Multi-Compo    DEFAULT_WEIGHT_SCHEDULING = {
-        'ce': {'start': 0.35, 'end': 0.25},
-        'kl': {'start': 0.6, 'end': 0.35},
-        'pans': {'start': 0.05, 'end': 0.25},
-        'ast': {'start': 0.0, 'end': 0.15}
-    }oss Architecture for advanced knowledge distillation.
+Multi-Component Loss Architecture for advanced knowledge distillation.
 """
 import torch
 import torch.nn.functional as F

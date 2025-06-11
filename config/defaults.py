@@ -79,11 +79,12 @@ SEMANTIC_SCALING_PARAMS = {
     'max_scale': 10.0   # Maximum scaling factor
 }
 
-# Dynamic weight scheduling for multi-component loss (AGGRESSIVE PRESET - DEFAULT)
-# This preset emphasizes knowledge distillation (KL) over cross-entropy throughout training
+# Dynamic weight scheduling for multi-component loss (UNIFIED SCHEDULING)
 # Linear interpolation strategy: weight = start + progress * (end - start)
 # where progress goes from 0.0 (start of training) to 1.0 (end of training)
+# All loss components are normalized, so exact values matter less than relative proportions
 WEIGHT_SCHEDULING = {
+    # Legacy components (CE + KL + PANS + AST)
     'ce': {
         'start': 0.35,  # Lower CE, prioritizing knowledge transfer
         'end': 0.25     # Further reduced to make room for code components
@@ -100,27 +101,23 @@ WEIGHT_SCHEDULING = {
         'start': 0.0,   # No initial AST penalty
         'end': 0.15     # Moderate AST growth for syntax
     },
-    'contrastive': {
-        'start': 0.1,   # PRD v1: Start with moderate contrastive weight
-        'end': 0.2      # PRD v1: Increase to strengthen contrastive learning
-    }
-}
-
-# TRIDENT LOSS SCHEDULING - For advanced "Trident" configuration with Focal + JSD + Semantic
-# This preset is optimized for the new three-component loss architecture
-# Emphasizes semantic understanding while maintaining knowledge distillation quality
-TRIDENT_WEIGHT_SCHEDULING = {
+    
+    # Trident components (Focal + JSD + Semantic + Contrastive)
     'focal': {
         'start': 0.3,   # Strong focal loss start for hard example focus
-        'end': 0.3      # Reduced to balance with semantic learning
+        'end': 0.25     # Reduced to balance with semantic and contrastive learning
     },
     'jsd': {
-        'start': 0.7,   # High JSD priority for stable knowledge transfer
-        'end': 0.35     # Maintained but allows semantic growth
+        'start': 0.6,   # High JSD priority for stable knowledge transfer
+        'end': 0.35     # Maintained but allows semantic and contrastive growth
     },
     'semantic': {
-        'start': 0.0,   # Low semantic start to establish foundations
-        'end': 0.35     # Major semantic growth for advanced understanding
+        'start': 0.05,  # Low semantic start to establish foundations
+        'end': 0.25     # Major semantic growth for advanced understanding
+    },
+    'contrastive': {
+        'start': 0.1,   # PRD v1: Start with moderate contrastive weight
+        'end': 0.15     # PRD v1: Increase to strengthen contrastive learning
     }
 }
 
@@ -153,7 +150,7 @@ TRIDENT_WEIGHT_SCHEDULING = {
 
 # Weight normalization settings
 WEIGHT_NORMALIZATION = {
-    'enabled': False,  # Whether to normalize weights to sum to 1.0
+    'enabled': True,   # Whether to normalize weights to sum to 1.0
     'min_weight': 0.01,  # Minimum weight for any component
     'max_weight': 0.8    # Maximum weight for any component
 }

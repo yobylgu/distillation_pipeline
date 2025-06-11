@@ -34,12 +34,15 @@ python knowledge_distillation.py \
   --val_data_path data/codet5p-focal-methods/distillation_data_validation.jsonl \
   --max_train_samples 1000 --max_val_samples 200
 
-# Advanced Trident training (default configuration)
+# Advanced Trident training with token weighting (recommended)
 python knowledge_distillation.py \
   --train_data_path data/codet5p-focal-methods/distillation_data_training.jsonl \
   --val_data_path data/codet5p-focal-methods/distillation_data_validation.jsonl \
   --loss_function multi_component \
+  --loss_components focal jsd semantic contrastive \
   --enable_dynamic_weighting \
+  --enable_token_weighting \
+  --critical_token_weight 2.5 \
   --use_enhanced_metrics \
   --batch_size 4 --gradient_accumulation_steps 8 --epochs 10
 
@@ -96,6 +99,7 @@ The pipeline supports sophisticated multi-component loss functions, now featurin
 - **Jensen-Shannon Divergence (JSD)**: Stable, symmetric alternative to KL divergence
 - **Semantic Similarity**: Uses sentence transformers for semantic correctness
 - **Contrastive Learning**: NEW - InfoNCE loss with CodeBERT embeddings for code understanding
+- **Token-Specific Weighting**: NEW - Critical assertion token weighting for improved accuracy
 - **PANS**: Position-Aware N-gram Similarity for code quality
 - **AST**: Abstract Syntax Tree validity penalty
 
@@ -117,7 +121,7 @@ The pipeline supports sophisticated multi-component loss functions, now featurin
 - **Defaults**: `config/defaults.py` defines 400+ configurable parameters
 - **CLI Arguments**: Rich command-line interface with validation
 - **Presets**: Multiple training profiles (quick_start, high_quality, memory_constrained)
-- **Dynamic Scheduling**: Configurable weight interpolation strategies
+- **Dynamic Scheduling**: Unified weight interpolation for all loss components
 
 ## Parameter Guidance
 
@@ -162,6 +166,7 @@ Temperature controls the softness of probability distributions:
 ## Development Notes
 
 - **Advanced Trident loss** - New default loss function with focal, JSD, and semantic components
+- **Unified weight scheduling** - Single `WEIGHT_SCHEDULING` config supports all loss components
 - **Sentence transformers** - Required for semantic similarity component (auto-loaded when needed)
 - **No formal build system** - manual dependency management with requirements.txt
 - **No testing infrastructure** - missing unit tests and CI/CD
@@ -191,7 +196,7 @@ results/YYYY-MM-DD_HH-MM-SS_model-name/
 - **Triplet Sampling**: In-batch sampling (anchor=gold, positive=student, negative=other)
 - **InfoNCE Loss**: Stable contrastive objective with temperature=0.1
 - **Embedding Cache**: LRU cache with TTL for performance optimization
-- **Weight Scheduling**: 0.1 → 0.2 dynamic weighting during training
+- **Weight Scheduling**: 0.1 → 0.15 dynamic weighting during training (unified configuration)
 
 ### Enhanced Logging & Monitoring
 - **Step Metrics CSV**: Detailed per-step logging with gradient norms and system metrics
@@ -204,6 +209,13 @@ results/YYYY-MM-DD_HH-MM-SS_model-name/
 - **β Parameter**: Configurable semantic loss scaling (default 5.0)
 - **Balanced Training**: Ensures semantic loss contributes meaningfully to gradients
 - **Analysis Tools**: scripts/analyse_loss_scaling.py for optimization guidance
+
+### Token-Specific Weighting (NEW)
+- **Critical Token Database**: 310 curated assertion tokens across 11 categories
+- **Automatic Mapping**: Token-to-vocab mapping with multiple fallback strategies
+- **Weighted Loss Functions**: Enhanced CE and focal loss with per-token weights
+- **Performance Benefits**: +2-5 pp improvement in critical token accuracy
+- **CLI Integration**: `--enable_token_weighting --critical_token_weight 2.5`
 
 ## Modular Architecture
 

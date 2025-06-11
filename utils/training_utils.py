@@ -48,21 +48,13 @@ def setup_loss_function(args, tokenizer, sentence_transformer_model=None):
     
     if args.loss_function == 'multi_component':
         from models.multi_component_loss import MultiComponentLoss
-        from config.defaults import WEIGHT_SCHEDULING, TRIDENT_WEIGHT_SCHEDULING, DEFAULT_LOSS_WEIGHTS
+        from config.defaults import WEIGHT_SCHEDULING, DEFAULT_LOSS_WEIGHTS
         
         components = args.loss_components
         enable_dynamic_weighting = getattr(args, 'enable_dynamic_weighting', True)
         
-        # Auto-select scheduling based on components
-        # Use Trident scheduling if using Trident components (focal, jsd, semantic)
-        trident_components = {'focal', 'jsd', 'semantic'}
-        
-        if set(components) & trident_components:  # If any Trident components are used
-            scheduling_config = TRIDENT_WEIGHT_SCHEDULING
-            scheduling_name = "TRIDENT_WEIGHT_SCHEDULING"
-        else:  # Use legacy scheduling for traditional components
-            scheduling_config = WEIGHT_SCHEDULING
-            scheduling_name = "WEIGHT_SCHEDULING"
+        # Use unified WEIGHT_SCHEDULING for all components (legacy + Trident)
+        scheduling_config = WEIGHT_SCHEDULING
         
         if args.loss_weights is None:
             if enable_dynamic_weighting:
@@ -74,7 +66,7 @@ def setup_loss_function(args, tokenizer, sentence_transformer_model=None):
                     else:
                         # Fallback to default weights for missing components
                         weights.append(DEFAULT_LOSS_WEIGHTS.get(comp, 0.1))
-                print(f"Using dynamic weight scheduling - initial weights from {scheduling_name}")
+                print(f"Using unified dynamic weight scheduling - initial weights from WEIGHT_SCHEDULING")
             else:
                 # Use static default weights when dynamic weighting is disabled
                 weights = []
@@ -98,7 +90,7 @@ def setup_loss_function(args, tokenizer, sentence_transformer_model=None):
         )
         
         if enable_dynamic_weighting:
-            print(f"Using multi-component loss with dynamic weight scheduling")
+            print(f"Using multi-component loss with unified dynamic weight scheduling")
             print(f"  Components: {components}, Initial scheduled weights: {weights}")
             expected_final = []
             for comp in components:

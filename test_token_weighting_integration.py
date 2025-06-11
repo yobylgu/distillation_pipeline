@@ -19,11 +19,12 @@ class MockTokenizer:
     """Mock tokenizer for testing token weighting."""
     
     def __init__(self):
-        # Create vocab with some critical tokens
+        # Create vocab with some critical tokens - use smaller indices to avoid bounds issues
         self.vocab = {
-            'assertTrue': 100, 'assertFalse': 101, 'assertEquals': 102,
-            'assertNull': 103, 'verify': 104, 'when': 105,
-            'the': 1, 'and': 2, 'is': 3, 'of': 4, 'to': 5  # Non-critical tokens
+            'assertTrue': 10, 'assertFalse': 11, 'assertEquals': 12,
+            'assertNull': 13, 'verify': 14, 'when': 15,
+            'the': 1, 'and': 2, 'is': 3, 'of': 4, 'to': 5,  # Non-critical tokens
+            '<pad>': 0, '<unk>': 6, '<s>': 7, '</s>': 8  # Special tokens
         }
         self.reverse_vocab = {v: k for k, v in self.vocab.items()}
     
@@ -44,20 +45,20 @@ def test_weighted_cross_entropy():
     """Test weighted cross-entropy loss with critical tokens."""
     print("🧪 Testing Weighted Cross-Entropy Loss")
     
-    vocab_size = 110
+    vocab_size = 20  # Smaller vocab size to match our mock tokenizer
     batch_size = 2
     seq_len = 4
     
     # Create sample data with critical and non-critical tokens
     logits = torch.randn(batch_size, seq_len, vocab_size)
     labels = torch.tensor([
-        [100, 101, 1, 2],    # assertTrue, assertFalse, the, and
-        [102, 103, 3, -100]  # assertEquals, assertNull, is, padding
+        [10, 11, 1, 2],    # assertTrue, assertFalse, the, and
+        [12, 13, 3, -100]  # assertEquals, assertNull, is, padding
     ])
     
     # Create token weights (critical tokens have weight 2.0, others 1.0)
     token_weights = torch.ones(vocab_size)
-    critical_indices = [100, 101, 102, 103, 104, 105]  # assertion tokens
+    critical_indices = [10, 11, 12, 13, 14, 15]  # assertion tokens
     for idx in critical_indices:
         token_weights[idx] = 2.0
     
@@ -80,20 +81,20 @@ def test_weighted_focal_loss():
     """Test focal loss with critical token weighting."""
     print("\n🧪 Testing Weighted Focal Loss")
     
-    vocab_size = 110
+    vocab_size = 20  # Smaller vocab size
     batch_size = 2
     seq_len = 4
     
     # Create sample data
     logits = torch.randn(batch_size, seq_len, vocab_size)
     labels = torch.tensor([
-        [100, 101, 1, 2],    # Critical tokens first
-        [102, 103, 3, -100]  # Critical tokens first
+        [10, 11, 1, 2],    # Critical tokens first
+        [12, 13, 3, -100]  # Critical tokens first
     ])
     
     # Create token weights
     token_weights = torch.ones(vocab_size)
-    critical_indices = [100, 101, 102, 103, 104, 105]
+    critical_indices = [10, 11, 12, 13, 14, 15]
     for idx in critical_indices:
         token_weights[idx] = 3.0  # Higher weight for focal loss test
     
@@ -140,8 +141,8 @@ def test_multi_component_loss_integration():
     student_logits = torch.randn(batch_size, seq_len, vocab_size)
     teacher_logits = torch.randn(batch_size, seq_len, vocab_size)
     labels = torch.tensor([
-        [100, 101, 1],  # assertTrue, assertFalse, the
-        [102, 2, -100]  # assertEquals, and, padding
+        [10, 11, 1],  # assertTrue, assertFalse, the
+        [12, 2, -100]  # assertEquals, and, padding
     ])
     
     # Compute loss with token weighting
@@ -178,10 +179,10 @@ def test_token_weighter_integration():
     assert len(critical_indices) > 0, "Should find some critical tokens"
     
     # Test weight retrieval for specific tokens
-    assertTrue_weight = weighter.get_token_weight(100)  # assertTrue
+    assertTrue_weight = weighter.get_token_weight(10)  # assertTrue
     the_weight = weighter.get_token_weight(1)  # the
     
-    print(f"Weight for 'assertTrue' (token 100): {assertTrue_weight}")
+    print(f"Weight for 'assertTrue' (token 10): {assertTrue_weight}")
     print(f"Weight for 'the' (token 1): {the_weight}")
     
     # Critical token should have higher weight
