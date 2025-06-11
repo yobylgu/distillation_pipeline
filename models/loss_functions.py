@@ -594,10 +594,12 @@ def compute_contrastive_loss(student_logits: torch.Tensor,
         
         # Validate triplets
         if not triplet_sampler.validate_triplets(triplets):
+            logger.warning("Triplet validation failed")
             return torch.tensor(0.0, device=device, requires_grad=True)
         
         num_triplets = len(triplets['anchor'])
         if num_triplets == 0:
+            logger.warning("No triplets generated")
             return torch.tensor(0.0, device=device, requires_grad=True)
         
         # Encode triplets using CodeBERT (with caching if available)

@@ -28,11 +28,15 @@ pip install -r requirements.txt
 # Train teacher model and generate distillation data
 python train_codet5_assertions.py --train_data_path data/training.jsonl --val_data_path data/validation.jsonl
 
-# Basic student model training
+# Basic student model training (local)
 python knowledge_distillation.py \
   --train_data_path data/codet5p-focal-methods/distillation_data_training.jsonl \
   --val_data_path data/codet5p-focal-methods/distillation_data_validation.jsonl \
-  --max_train_samples 1000 --max_val_samples 200
+  --max_train_samples 1000 --max_val_samples 200 \
+  --device auto
+
+# Cluster training (DelftBlue/SLURM)
+sbatch slurm_scripts/student_training_gpu.sh
 
 # Advanced Trident training with token weighting (recommended)
 python knowledge_distillation.py \
@@ -44,6 +48,7 @@ python knowledge_distillation.py \
   --enable_token_weighting \
   --critical_token_weight 2.5 \
   --use_enhanced_metrics \
+  --device auto \
   --batch_size 4 --gradient_accumulation_steps 8 --epochs 10
 
 # Extended Trident training (7-8 hour runs)
@@ -60,6 +65,7 @@ python knowledge_distillation.py \
   --weight_decay 0.01 \
   --alpha 0.5 \
   --temperature 4.0 \
+  --device auto \
   --output_dir results/extended_trident_7h \
   --loss_function multi_component \
   --loss_components focal jsd semantic \
@@ -75,6 +81,7 @@ python knowledge_distillation.py \
   --loss_components ce kl pans ast \
   --enable_dynamic_weighting \
   --use_enhanced_metrics \
+  --device auto \
   --batch_size 4 --gradient_accumulation_steps 8 --epochs 10
 
 # Post-hoc evaluation
@@ -227,3 +234,39 @@ The codebase follows clean separation of concerns:
 - **utils/**: Logging, training utilities, device management
 
 When extending the system, follow the existing modular patterns and use the comprehensive configuration system in `config/defaults.py`.
+
+## Cluster Compatibility (DelftBlue/SLURM)
+
+The pipeline is fully compatible with HPC clusters including DelftBlue at TU Delft:
+
+### Device Management
+- **Automatic GPU Detection**: `--device auto` automatically detects CUDA, falls back to CPU
+- **SLURM Integration**: Respects `CUDA_VISIBLE_DEVICES` and SLURM environment variables
+- **Multi-GPU Support**: Ready for distributed training setups
+
+### SLURM Job Scripts
+Pre-configured SLURM scripts in `slurm_scripts/`:
+- `test_cuda.sh` - CUDA compatibility test (30 min, 1 GPU)
+- `student_training_gpu.sh` - Main student training (8 hours, 1 GPU)
+- `teacher_training_gpu.sh` - Teacher model training (12 hours, 1 GPU) 
+- `multi_gpu_training.sh` - Extended training (16 hours, 2 GPUs)
+
+### Usage Example
+```bash
+# Local development
+python knowledge_distillation.py --device auto [args]
+
+# Cluster submission
+sbatch slurm_scripts/student_training_gpu.sh
+
+# Monitor job
+squeue -u $USER
+tail -f logs/slurm-JOBID.out
+```
+
+### Cluster Dependencies
+Additional monitoring tools in requirements.txt:
+- `nvidia-ml-py3` - GPU monitoring on NVIDIA clusters  
+- `gpustat` - GPU utilization tracking
+
+See `slurm_scripts/README.md` for detailed cluster setup instructions.

@@ -164,6 +164,10 @@ def parse_arguments():
     parser.add_argument('--enable_token_weighting', action='store_true', help='Enable token-specific weighting for critical assertion tokens')
     parser.add_argument('--critical_token_weight', type=float, default=DEFAULT_CRITICAL_TOKEN_WEIGHT, help='Weight multiplier for critical tokens (default 2.0)')
     
+    # Hardware arguments
+    parser.add_argument('--device', default=HARDWARE_PARAMS['device'], choices=['auto', 'cpu', 'cuda', 'cuda:0', 'cuda:1'], 
+                       help='Device to use for training (auto, cpu, cuda, or specific GPU like cuda:0)')
+    
     # Other arguments
     parser.add_argument('--use_enhanced_metrics', action='store_true', help='Use enhanced assertion evaluation metrics')
     parser.add_argument('--validation_frequency', type=int, default=DEFAULT_VALIDATION_FREQUENCY, help='Validate every N epochs')
@@ -358,7 +362,7 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
     print(f"Results will be saved to: {output_dir}")
 
-    device = setup_device()
+    device = setup_device(args.device)
     # Pass the dropout rate to the setup function
     model, tokenizer = setup_model_and_tokenizer(args.model_name, device, args.dropout_rate)
 

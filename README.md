@@ -24,6 +24,7 @@ This repository implements an advanced knowledge distillation pipeline for autom
 - 📊 **Enhanced Evaluation**: AST validity, code quality metrics, and comprehensive logging
 - 🔧 **Modular Architecture**: Clean, maintainable, and extensible codebase
 - 🚀 **Production Ready**: Memory optimization, error handling, and robust training pipeline
+- 🖥️ **Cluster Compatible**: **NEW** - Full SLURM/DelftBlue support with auto GPU detection
 
 ## 📁 **Project Structure**
 
@@ -50,15 +51,21 @@ distillation_pipeline/
 │   ├── __init__.py
 │   ├── loss_functions.py          # Individual loss components
 │   └── multi_component_loss.py    # Multi-component loss architecture
-└── utils/                           # 🛠️ Utility scripts
-    ├── __init__.py
-    ├── command_utils.py           # Utilities for logging training commands
-    ├── compress.py                # Logit compression/decompression
-    ├── device_utils.py            # Device (CPU/GPU) management
-    ├── jsonl_parser.py            # Parser for JSONL files
-    ├── logging_utils.py           # Logging setup
-    ├── training_utils.py          # Training helper functions
-    └── token_weighting.py         # NEW: Token weighting implementation
+├── utils/                           # 🛠️ Utility scripts
+│   ├── __init__.py
+│   ├── command_utils.py           # Utilities for logging training commands
+│   ├── compress.py                # Logit compression/decompression
+│   ├── device_utils.py            # Device (CPU/GPU) management
+│   ├── jsonl_parser.py            # Parser for JSONL files
+│   ├── logging_utils.py           # Logging setup
+│   ├── training_utils.py          # Training helper functions
+│   └── token_weighting.py         # NEW: Token weighting implementation
+└── slurm_scripts/                 # 🖥️ Cluster job scripts (NEW)
+    ├── README.md                  # Cluster setup documentation  
+    ├── test_cuda.sh               # CUDA compatibility test
+    ├── student_training_gpu.sh    # Main student training job
+    ├── teacher_training_gpu.sh    # Teacher model training job
+    └── multi_gpu_training.sh      # Multi-GPU extended training
 ```
 
 ## 🚀 **Quick Start**
@@ -86,6 +93,7 @@ python knowledge_distillation.py \
   --max_val_samples 200 \
   --batch_size 4 \
   --epochs 5 \
+  --device auto \
   --loss_function multi_component
 
 # Traditional knowledge distillation (legacy)
@@ -97,7 +105,11 @@ python knowledge_distillation.py \
   --max_val_samples 200 \
   --batch_size 4 \
   --epochs 5 \
+  --device auto \
   --loss_function traditional
+
+# Cluster training (DelftBlue/SLURM)
+sbatch slurm_scripts/student_training_gpu.sh
 ```
 
 ### 3. **Advanced Training with All Features**
@@ -121,6 +133,7 @@ python knowledge_distillation.py \
   --enable_dynamic_weighting \
   --enable_token_weighting \
   --critical_token_weight 2.5 \
+  --device auto \
   --use_enhanced_metrics
 
 # Legacy multi-component configuration
@@ -139,6 +152,7 @@ python knowledge_distillation.py \
   --loss_function multi_component \
   --loss_components ce kl pans ast \
   --loss_weights 0.4 0.35 0.15 0.1 \
+  --device auto \
   --use_enhanced_metrics
 ```
 
@@ -197,6 +211,7 @@ For more configuration options, see `config/defaults.py` or run the script with 
 | `--semantic_loss_scale` | Semantic loss scaling factor (β) | `5.0` | `10.0` |
 | `--enable_token_weighting` | **NEW**: Enable critical token weighting | `False` | `--enable_token_weighting` |
 | `--critical_token_weight` | **NEW**: Weight multiplier for critical tokens | `2.0` | `2.5` |
+| `--device` | **NEW**: Device selection for training | `auto` | `cuda`, `cpu`, `cuda:0` |
 
 ### **Loss Function Options**
 
@@ -635,6 +650,45 @@ This runs 4 comprehensive demonstrations:
 | Multi-Component | +25% | +15% | 0.82 | 0.92 |
 | Production (32 eff. batch) | +10% | -20% | 0.84 | 0.94 |
 
+## 🖥️ **Cluster Compatibility (NEW)**
+
+The pipeline is fully compatible with HPC clusters including DelftBlue at TU Delft:
+
+### **Device Management**
+- **Automatic GPU Detection**: `--device auto` automatically detects CUDA, falls back to CPU
+- **SLURM Integration**: Respects `CUDA_VISIBLE_DEVICES` and SLURM environment variables  
+- **Multi-GPU Support**: Ready for distributed training setups
+
+### **SLURM Job Scripts**
+Pre-configured SLURM scripts in `slurm_scripts/`:
+- `test_cuda.sh` - CUDA compatibility test (30 min, 1 GPU)
+- `student_training_gpu.sh` - Main student training (8 hours, 1 GPU)
+- `teacher_training_gpu.sh` - Teacher model training (12 hours, 1 GPU)
+- `multi_gpu_training.sh` - Extended training (16 hours, 2 GPUs)
+
+### **Usage Examples**
+```bash
+# Local development
+python knowledge_distillation.py --device auto [other args]
+
+# Test CUDA on cluster
+sbatch slurm_scripts/test_cuda.sh
+
+# Submit training job
+sbatch slurm_scripts/student_training_gpu.sh
+
+# Monitor jobs
+squeue -u $USER
+tail -f logs/slurm-JOBID.out
+```
+
+### **Cluster Dependencies**
+Additional monitoring tools in requirements.txt:
+- `nvidia-ml-py3` - GPU monitoring on NVIDIA clusters
+- `gpustat` - GPU utilization tracking
+
+See `slurm_scripts/README.md` for detailed cluster setup instructions.
+
 ## 🔍 **Troubleshooting**
 
 ### **Common Issues**
@@ -645,15 +699,18 @@ This runs 4 comprehensive demonstrations:
 | Slow Training | Enable `--use_enhanced_metrics` only for final evaluation |
 | NaN Loss | Check data quality, reduce learning rate |
 | Poor AST Validity | Increase `ast_weight` or enable dynamic scheduling |
+| CUDA not detected | Use `--device auto` or check CUDA_VISIBLE_DEVICES |
+| SLURM job fails | Check `slurm_scripts/README.md` for setup instructions |
 
 ### **Hardware Recommendations**
 
-| Hardware | Batch Size | Gradient Accumulation | Effective Batch |
-|----------|------------|----------------------|-----------------|
-| 8GB GPU | 2 | 8 | 16 |
-| 16GB GPU | 4 | 8 | 32 |
-| 24GB GPU | 8 | 4 | 32 |
-| CPU Only | 1 | 16 | 16 |
+| Hardware | Batch Size | Gradient Accumulation | Effective Batch | Device |
+|----------|------------|----------------------|-----------------|---------|
+| 8GB GPU | 2 | 8 | 16 | `--device auto` |
+| 16GB GPU | 4 | 8 | 32 | `--device auto` |
+| 24GB GPU | 8 | 4 | 32 | `--device auto` |
+| CPU Only | 1 | 16 | 16 | `--device cpu` |
+| Multi-GPU | 8 | 2 | 16 | `--device auto` |
 
 ## 🤝 **Contributing**
 

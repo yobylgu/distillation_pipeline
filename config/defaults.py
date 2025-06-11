@@ -305,7 +305,7 @@ PROGRESSIVE_SCHEDULING = {
 # ============================================================================
 
 HARDWARE_PARAMS = {
-    'device': 'auto',           # Options: 'auto', 'cpu', 'cuda', 'mps'. Auto detects best available
+    'device': 'auto',           # Options: 'auto', 'cpu', 'cuda'. Auto detects best available
     'mixed_precision': 'fp16',  # Options: 'no', 'fp16', 'bf16'. Use fp16 for most GPUs
     'dataloader_num_workers': 0,     # Tune: 0-8. Number of subprocesses for data loading
     'dataloader_pin_memory': True,   # Pin memory for faster GPU transfer

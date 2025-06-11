@@ -80,13 +80,27 @@ def setup_loss_function(args, tokenizer, sentence_transformer_model=None):
         if len(weights) != len(components):
             raise ValueError(f"Number of weights ({len(weights)}) must match components ({len(components)})")
         
+        # Initialize contrastive learning components if needed
+        codebert_encoder = None
+        triplet_sampler = None
+        
+        if 'contrastive' in components:
+            from models.codebert_encoder import CodeBERTEncoder
+            from models.triplet_sampler import InBatchTripletSampler
+            
+            print("Initializing CodeBERT encoder and triplet sampler for contrastive learning...")
+            codebert_encoder = CodeBERTEncoder()
+            triplet_sampler = InBatchTripletSampler()
+        
         multi_loss = MultiComponentLoss(
             components, 
             weights, 
             tokenizer, 
             enable_dynamic_weighting=enable_dynamic_weighting,
             custom_scheduling=scheduling_config,
-            sentence_transformer_model=sentence_transformer_model
+            sentence_transformer_model=sentence_transformer_model,
+            codebert_encoder=codebert_encoder,
+            triplet_sampler=triplet_sampler
         )
         
         if enable_dynamic_weighting:

@@ -102,6 +102,8 @@ class InBatchTripletSampler:
                     anchor_texts.append(anchor_text)
                     positive_texts.append(positive_text)
                     triplet_indices.append(i)
+                else:
+                    logger.warning(f"Sample {i} skipped - empty text. Anchor: '{anchor_text}', Positive: '{positive_text}'")
                     
             except Exception as e:
                 logger.warning(f"Failed to decode sample {i}: {e}")
@@ -269,7 +271,7 @@ class InBatchTripletSampler:
         for key in required_keys:
             for i, text in enumerate(triplets[key]):
                 if not isinstance(text, str) or len(text.strip()) == 0:
-                    logger.error(f"Empty or invalid text in {key}[{i}]: '{text}'")
+                    logger.warning(f"Empty or invalid text in {key}[{i}]: '{text}' (type: {type(text)})")
                     return False
         
         logger.debug(f"Validated {lengths[0]} triplets successfully")
