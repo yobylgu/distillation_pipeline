@@ -10,7 +10,7 @@ DEFAULT_GRADIENT_ACCUMULATION_STEPS = 4
 DEFAULT_EPOCHS = 5
 DEFAULT_LEARNING_RATE = 5e-5
 DEFAULT_ALPHA = 0.5
-DEFAULT_TEMPERATURE = 2.0
+DEFAULT_TEMPERATURE = 4.0  # Changed to match documentation and examples
 
 # Data processing defaults
 DEFAULT_MAX_TRAIN_SAMPLES = 100
@@ -31,8 +31,8 @@ DEFAULT_WARMUP_RATIO = 0.1  # 10% of total steps for warmup
 DEFAULT_ADAM_EPSILON = 1e-8
 
 # Loss function defaults
-DEFAULT_LOSS_FUNCTION = 'traditional'
-DEFAULT_LOSS_COMPONENTS = ['focal', 'jsd', 'semantic']
+DEFAULT_LOSS_FUNCTION = 'multi_component'  # Changed to match documentation
+DEFAULT_LOSS_COMPONENTS = ['focal', 'jsd', 'semantic']  # Trident components
 DEFAULT_ENABLE_DYNAMIC_WEIGHTING = True
 
 # DataLoader defaults
