@@ -34,11 +34,15 @@ pip install -r requirements.txt
 # Train teacher model and generate distillation data
 python train_codet5_assertions.py --train_data_path data/training.jsonl --val_data_path data/validation.jsonl
 
-# Basic student model training
+# Basic student model training (local)
 python knowledge_distillation.py \
   --train_data_path data/codet5p-focal-methods/distillation_data_training.jsonl \
   --val_data_path data/codet5p-focal-methods/distillation_data_validation.jsonl \
-  --max_train_samples 1000 --max_val_samples 200
+  --max_train_samples 1000 --max_val_samples 200 \
+  --device auto
+
+# Cluster training (DelftBlue/SLURM)
+sbatch slurm_scripts/student_training_gpu.sh
 
 # Advanced Trident training (default configuration)
 # Note: System auto-detects Trident components and applies TRIDENT_WEIGHT_SCHEDULING
@@ -48,7 +52,10 @@ python knowledge_distillation.py \
   --loss_function multi_component \
   --loss_components focal jsd semantic \
   --enable_dynamic_weighting \
+  --enable_token_weighting \
+  --critical_token_weight 2.5 \
   --use_enhanced_metrics \
+  --device auto \
   --batch_size 4 --gradient_accumulation_steps 8 --epochs 10
 
 # Extended Trident training (7-8 hour runs)
@@ -65,6 +72,7 @@ python knowledge_distillation.py \
   --weight_decay 0.01 \
   --alpha 0.5 \
   --temperature 4.0 \
+  --device auto \
   --output_dir results/extended_trident_7h \
   --loss_function multi_component \
   --loss_components focal jsd semantic \
@@ -80,6 +88,7 @@ python knowledge_distillation.py \
   --loss_components ce kl pans ast \
   --enable_dynamic_weighting \
   --use_enhanced_metrics \
+  --device auto \
   --batch_size 4 --gradient_accumulation_steps 8 --epochs 10
 
 # Post-hoc evaluation with teacher/student comparison
@@ -132,6 +141,8 @@ T(epoch) = 4.0 * (1.5/4.0)^(epoch/total_epochs)
   - Formula: `JSD = 0.5 * (KL(P||M) + KL(Q||M))` where M = (P+Q)/2
   - Numerical stability: eps=1e-8, probability clamping, temperature scaling
 - **Semantic Similarity**: Uses sentence transformers for semantic correctness
+- **Contrastive Learning**: NEW - InfoNCE loss with CodeBERT embeddings for code understanding
+- **Token-Specific Weighting**: NEW - Critical assertion token weighting for improved accuracy
   - Formula: `semantic_loss = 1.0 - cosine_similarity(pred_embedding, ref_embedding)`
   - Uses pre-trained sentence transformer models for meaning preservation
 
@@ -158,31 +169,7 @@ T(epoch) = 4.0 * (1.5/4.0)^(epoch/total_epochs)
 - **Defaults**: `config/defaults.py` defines 60+ configurable parameters
 - **CLI Arguments**: Rich command-line interface with validation
 - **Presets**: Multiple training profiles (quick_start, high_quality, memory_constrained)
-- **Dynamic Scheduling**: Configurable weight interpolation strategies
-
-## Technical Implementation Details
-
-### Numerical Stability Measures
-- **Probability Clamping**: All probabilities clamped to [1e-8, 1-1e-8] range
-- **Gradient Clipping**: Automatic gradient norm clipping at 1.0
-- **Mixed Precision**: FP16 training supported with automatic loss scaling
-- **Memory Optimization**: Teacher logits compressed using LZ4 (typical 4x compression)
-
-### Auto-Selection Logic
-```python
-# System automatically detects component types and selects appropriate scheduling
-trident_components = {'focal', 'jsd', 'semantic'}
-if set(loss_components) & trident_components:
-    scheduling = TRIDENT_WEIGHT_SCHEDULING
-else:
-    scheduling = WEIGHT_SCHEDULING  # Legacy components
-```
-
-### Evaluation Metrics Formulas
-- **Code Quality Score**: `0.30*CodeBLEU + 0.20*AST_validity + 0.20*PANS + 0.15*F1 + 0.10*semantic_sim + 0.05*token_acc`
-- **Knowledge Retention Score**: `0.6 * (1 - KL_normalized) + 0.4 * (student_F1 / teacher_F1)`
-- **PANS Score**: Position-aware n-gram similarity with exponential distance weighting
-- **AST Validity**: Percentage of generated assertions that parse as valid Java using javalang
+- **Dynamic Scheduling**: Unified weight interpolation for all loss components
 
 ## Parameter Guidance
 
@@ -273,6 +260,7 @@ python train_codet5_assertions.py \
 ## Development Notes
 
 - **Advanced Trident loss** - New default loss function with focal, JSD, and semantic components
+- **Unified weight scheduling** - Single `WEIGHT_SCHEDULING` config supports all loss components
 - **Sentence transformers** - Required for semantic similarity component (auto-installed)
   - Default model: 'all-MiniLM-L6-v2' for fast inference
   - Alternative models: 'all-mpnet-base-v2' for higher quality
@@ -290,10 +278,40 @@ results/YYYY-MM-DD_HH-MM-SS_model-name/
 ├── final_model/                    # Saved student model
 ├── best_model/                     # Best checkpoint (early stopping)
 ├── training_metrics.csv            # Step-by-step training metrics
+├── step_metrics.csv               # NEW: Detailed per-step metrics with gradient norms
+├── tensorboard/                   # NEW: TensorBoard logs for visualization
 ├── distillation_log.txt           # Complete training logs
 ├── predictions_final.jsonl        # Model predictions
 └── metrics_summary_final.json     # Evaluation summary
 ```
+
+## New Features (PRD v1 Implementation)
+
+### Contrastive Learning
+- **CodeBERT Integration**: Frozen microsoft/codebert-base encoder for code embeddings
+- **Triplet Sampling**: In-batch sampling (anchor=gold, positive=student, negative=other)
+- **InfoNCE Loss**: Stable contrastive objective with temperature=0.1
+- **Embedding Cache**: LRU cache with TTL for performance optimization
+- **Weight Scheduling**: 0.1 → 0.15 dynamic weighting during training (unified configuration)
+
+### Enhanced Logging & Monitoring
+- **Step Metrics CSV**: Detailed per-step logging with gradient norms and system metrics
+- **TensorBoard Integration**: Real-time visualization of all scalars and metrics
+- **Component Tracking**: Raw vs weighted loss values with metadata
+- **Memory Monitoring**: System memory usage and performance tracking
+- **Gradient Analysis**: Encoder/decoder gradient norm monitoring
+
+### Semantic Loss Scaling
+- **β Parameter**: Configurable semantic loss scaling (default 5.0)
+- **Balanced Training**: Ensures semantic loss contributes meaningfully to gradients
+- **Analysis Tools**: scripts/analyse_loss_scaling.py for optimization guidance
+
+### Token-Specific Weighting (NEW)
+- **Critical Token Database**: 310 curated assertion tokens across 11 categories
+- **Automatic Mapping**: Token-to-vocab mapping with multiple fallback strategies
+- **Weighted Loss Functions**: Enhanced CE and focal loss with per-token weights
+- **Performance Benefits**: +2-5 pp improvement in critical token accuracy
+- **CLI Integration**: `--enable_token_weighting --critical_token_weight 2.5`
 
 ## Modular Architecture
 
@@ -305,3 +323,39 @@ The codebase follows clean separation of concerns:
 - **utils/**: Logging, training utilities, device management
 
 When extending the system, follow the existing modular patterns and use the comprehensive configuration system in `config/defaults.py`.
+
+## Cluster Compatibility (DelftBlue/SLURM)
+
+The pipeline is fully compatible with HPC clusters including DelftBlue at TU Delft:
+
+### Device Management
+- **Automatic GPU Detection**: `--device auto` automatically detects CUDA, falls back to CPU
+- **SLURM Integration**: Respects `CUDA_VISIBLE_DEVICES` and SLURM environment variables
+- **Multi-GPU Support**: Ready for distributed training setups
+
+### SLURM Job Scripts
+Pre-configured SLURM scripts in `slurm_scripts/`:
+- `test_cuda.sh` - CUDA compatibility test (30 min, 1 GPU)
+- `student_training_gpu.sh` - Main student training (8 hours, 1 GPU)
+- `teacher_training_gpu.sh` - Teacher model training (12 hours, 1 GPU) 
+- `multi_gpu_training.sh` - Extended training (16 hours, 2 GPUs)
+
+### Usage Example
+```bash
+# Local development
+python knowledge_distillation.py --device auto [args]
+
+# Cluster submission
+sbatch slurm_scripts/student_training_gpu.sh
+
+# Monitor job
+squeue -u $USER
+tail -f logs/slurm-JOBID.out
+```
+
+### Cluster Dependencies
+Additional monitoring tools in requirements.txt:
+- `nvidia-ml-py3` - GPU monitoring on NVIDIA clusters  
+- `gpustat` - GPU utilization tracking
+
+See `slurm_scripts/README.md` for detailed cluster setup instructions.

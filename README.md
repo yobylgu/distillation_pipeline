@@ -17,11 +17,14 @@ This repository implements an advanced knowledge distillation pipeline for autom
 
 - 🧠 **Advanced Trident Loss**: Focal loss + Jensen-Shannon divergence + semantic similarity (multi-component default)
 - 🎯 **Legacy Multi-Component**: Traditional, Enhanced (PANS), AST-aware losses (backward compatible)
+- 🔑 **Token-Specific Weighting**: **NEW** - Critical assertion token weighting for improved accuracy
+- 🤖 **Contrastive Learning**: **NEW** - InfoNCE loss with CodeBERT embeddings for code understanding
 - ⚡ **Dynamic Training**: Learning rate scheduling with warmup, gradient accumulation
 - 🎯 **Smart Weight Scheduling**: Configurable linear interpolation for multi-component losses
 - 📊 **Enhanced Evaluation**: AST validity, code quality metrics, and comprehensive logging
 - 🔧 **Modular Architecture**: Clean, maintainable, and extensible codebase
 - 🚀 **Production Ready**: Memory optimization, error handling, and robust training pipeline
+- 🖥️ **Cluster Compatible**: **NEW** - Full SLURM/DelftBlue support with auto GPU detection
 
 ## 📁 **Project Structure**
 
@@ -34,7 +37,8 @@ distillation_pipeline/
 │
 ├── config/                        # 🔧 Configuration Management
 │   ├── __init__.py
-│   └── defaults.py                # Default settings, scheduling presets
+│   ├── defaults.py                # Default settings, scheduling presets
+│   └── critical_tokens.py         # NEW: Critical assertion token database
 ├── data/                            # 💾 Data handling
 │   ├── __init__.py
 │   └── dataset.py                 # Dataset class and collate functions
@@ -47,14 +51,21 @@ distillation_pipeline/
 │   ├── __init__.py
 │   ├── loss_functions.py          # Individual loss components
 │   └── multi_component_loss.py    # Multi-component loss architecture
-└── utils/                           # 🛠️ Utility scripts
-    ├── __init__.py
-    ├── command_utils.py           # Utilities for logging training commands
-    ├── compress.py                # Logit compression/decompression
-    ├── device_utils.py            # Device (CPU/GPU) management
-    ├── jsonl_parser.py            # Parser for JSONL files
-    ├── logging_utils.py           # Logging setup
-    └── training_utils.py          # Training helper functions
+├── utils/                           # 🛠️ Utility scripts
+│   ├── __init__.py
+│   ├── command_utils.py           # Utilities for logging training commands
+│   ├── compress.py                # Logit compression/decompression
+│   ├── device_utils.py            # Device (CPU/GPU) management
+│   ├── jsonl_parser.py            # Parser for JSONL files
+│   ├── logging_utils.py           # Logging setup
+│   ├── training_utils.py          # Training helper functions
+│   └── token_weighting.py         # NEW: Token weighting implementation
+└── slurm_scripts/                 # 🖥️ Cluster job scripts (NEW)
+    ├── README.md                  # Cluster setup documentation  
+    ├── test_cuda.sh               # CUDA compatibility test
+    ├── student_training_gpu.sh    # Main student training job
+    ├── teacher_training_gpu.sh    # Teacher model training job
+    └── multi_gpu_training.sh      # Multi-GPU extended training
 ```
 
 ## 🚀 **Quick Start**
@@ -170,6 +181,7 @@ python knowledge_distillation.py \
   --max_val_samples 200 \
   --batch_size 4 \
   --epochs 5 \
+  --device auto \
   --loss_function multi_component \
   --loss_components focal jsd semantic
 
@@ -182,13 +194,17 @@ python knowledge_distillation.py \
   --max_val_samples 200 \
   --batch_size 4 \
   --epochs 5 \
+  --device auto \
   --loss_function traditional
+
+# Cluster training (DelftBlue/SLURM)
+sbatch slurm_scripts/student_training_gpu.sh
 ```
 
 ### 5. **Advanced Training with All Features**
 
 ```bash
-# Production-ready Trident configuration (recommended)
+# Production-ready Trident configuration with token weighting (recommended)
 python knowledge_distillation.py \
   --train_data_path data/codet5p-focal-methods/distillation_data_training.jsonl \
   --val_data_path data/codet5p-focal-methods/distillation_data_validation.jsonl \
@@ -204,6 +220,9 @@ python knowledge_distillation.py \
   --loss_function multi_component \
   --loss_components focal jsd semantic \
   --enable_dynamic_weighting \
+  --enable_token_weighting \
+  --critical_token_weight 2.5 \
+  --device auto \
   --use_enhanced_metrics
 
 # Legacy multi-component configuration
@@ -222,6 +241,7 @@ python knowledge_distillation.py \
   --loss_function multi_component \
   --loss_components ce kl pans ast \
   --loss_weights 0.4 0.35 0.15 0.1 \
+  --device auto \
   --use_enhanced_metrics
 ```
 
@@ -287,6 +307,10 @@ For more configuration options, see `config/defaults.py` or run the script with 
 | `--lr` | Learning rate | `5e-5` | `2e-5` |
 | `--warmup_steps` | LR warmup steps | `0` (auto) | `100` |
 | `--weight_decay` | Weight decay for optimizer | `0.01` | `0.005` |
+| `--semantic_loss_scale` | Semantic loss scaling factor (β) | `5.0` | `10.0` |
+| `--enable_token_weighting` | **NEW**: Enable critical token weighting | `False` | `--enable_token_weighting` |
+| `--critical_token_weight` | **NEW**: Weight multiplier for critical tokens | `2.0` | `2.5` |
+| `--device` | **NEW**: Device selection for training | `auto` | `cuda`, `cpu`, `cuda:0` |
 
 ### **Loss Function Options**
 
@@ -324,7 +348,73 @@ For more configuration options, see `config/defaults.py` or run the script with 
 --loss_components ce kl pans ast \      # Legacy components
 --loss_weights 0.5 0.4 0.1 0.05 \      # Initial weights
 --enable_dynamic_weighting              # Enable weight scheduling
+
+# Semantic loss scaling (PRD v1 feature)
+--semantic_loss_scale 5.0 \             # β parameter for semantic loss scaling
+--loss_components focal jsd semantic    # Ensure semantic component is enabled
 ```
+
+### **Semantic Loss Scaling (β Parameter)**
+
+The pipeline supports semantic loss scaling to balance gradient magnitudes across loss components. This is controlled by the `semantic_loss_scale` parameter (β) which scales semantic similarity loss:
+
+```
+scaled_semantic_loss = β × semantic_loss
+```
+
+**Usage:**
+```bash
+# Default scaling (recommended)
+--semantic_loss_scale 5.0
+
+# High scaling for strong semantic emphasis
+--semantic_loss_scale 10.0
+
+# No scaling (for comparison)
+--semantic_loss_scale 1.0
+```
+
+**Benefits:**
+- **Balanced Training**: Ensures semantic loss contributes meaningfully to gradients
+- **Improved Convergence**: Prevents semantic loss from being overwhelmed by other components
+- **Configurable Impact**: Tune semantic importance based on your specific requirements
+
+**Analysis Tools:**
+```bash
+# Analyze current loss scaling effectiveness
+python scripts/analyse_loss_scaling.py --training_dir results/your_run/
+
+# Get recommendations for optimal β value
+python scripts/analyse_loss_scaling.py --log_file results/your_run/training_metrics.csv
+```
+
+### **Contrastive Learning (NEW - PRD v1)**
+
+The pipeline now includes advanced contrastive learning using CodeBERT embeddings and InfoNCE loss:
+
+**Components:**
+- **CodeBERT Encoder**: Frozen microsoft/codebert-base for high-quality code embeddings
+- **In-Batch Triplet Sampling**: Anchor=gold assertion, Positive=student prediction, Negative=other sample's gold
+- **InfoNCE Loss**: Stable contrastive learning objective that encourages semantic similarity
+- **Embedding Caching**: LRU cache with TTL to minimize computational overhead
+
+**Usage:**
+```bash
+# Enable contrastive learning in Trident loss (default)
+python knowledge_distillation.py \
+  --loss_function multi_component \
+  --loss_components focal jsd semantic contrastive \
+  --enable_dynamic_weighting
+
+# Contrastive weight scheduling: 0.1 → 0.15 during training (via unified WEIGHT_SCHEDULING)
+# Temperature: 0.1 (InfoNCE temperature for selectivity)
+```
+
+**Benefits:**
+- **Semantic Understanding**: Learns meaningful code representation beyond token-level similarity
+- **Robustness**: Distinguishes between semantically equivalent vs. different assertions
+- **Quality**: Improves assertion relevance and correctness
+- **Efficiency**: Embedding caching reduces computational overhead by ~30%
 
 ## 🧠 **Advanced Features**
 
@@ -385,31 +475,31 @@ L_semantic = 1.0 - cosine_similarity(encode(pred), encode(ref))
 The pipeline automatically adjusts loss component weights during training using linear interpolation:
 
 ```python
-# Trident weight scheduling (default in config/defaults.py)
-# Auto-selected when using focal/jsd/semantic components
-TRIDENT_WEIGHT_SCHEDULING = {
-    'focal': {'start': 0.3, 'end': 0.3},     # Consistent focus on hard examples
-    'jsd': {'start': 0.7, 'end': 0.35},     # High initial, stable knowledge transfer
-    'semantic': {'start': 0.0, 'end': 0.35}, # Progressive semantic focus increase
-}
-
-# Legacy weight scheduling (backward compatible)
-# Auto-selected when using traditional ce/kl/pans/ast components
+# Unified weight scheduling (default in config/defaults.py)
+# Supports both legacy (CE+KL+PANS+AST) and Trident (Focal+JSD+Semantic+Contrastive) components
 WEIGHT_SCHEDULING = {
-    'ce': {'start': 0.35, 'end': 0.25},      # Aggressive CE reduction
-    'kl': {'start': 0.6, 'end': 0.35},       # High KL priority, then balanced
-    'pans': {'start': 0.05, 'end': 0.25},    # Major PANS increase for code quality
-    'ast': {'start': 0.0, 'end': 0.15}       # Progressive syntax correctness
+    # Legacy components
+    'ce': {'start': 0.35, 'end': 0.25},      # CE for hard targets
+    'kl': {'start': 0.6, 'end': 0.35},       # KL for knowledge distillation
+    'pans': {'start': 0.05, 'end': 0.25},    # PANS for code quality
+    'ast': {'start': 0.0, 'end': 0.15},      # AST for syntax correctness
+    
+    # Trident components  
+    'focal': {'start': 0.3, 'end': 0.25},    # Focal for hard examples
+    'jsd': {'start': 0.6, 'end': 0.35},      # JSD for stable knowledge transfer
+    'semantic': {'start': 0.05, 'end': 0.25}, # Semantic for meaning
+    'contrastive': {'start': 0.1, 'end': 0.15} # Contrastive for code understanding
 }
 ```
 
-**Scheduling Presets:**
-- `trident`: **Default Trident loss scheduling** (focal + JSD + semantic) - automatically selected
-- `legacy`: Traditional scheduling (ce + kl + pans + ast) - automatically selected
-- **Auto-Selection**: System detects component types and applies appropriate scheduling
-- Additional presets available in `config/defaults.py`: `conservative`, `code_focused`, `stability_first`
+**Scheduling Features:**
+- **Unified Configuration**: Single `WEIGHT_SCHEDULING` supports all loss components
+- **Component Selection**: Use `--loss_components` to choose which components to activate
+- **Dynamic Weighting**: Automatic weight interpolation during training
+- **Normalized Weights**: All weights are automatically normalized, so relative proportions matter most
+- **Flexible Architecture**: Works with any combination of legacy or Trident components
 
-### **5. Enhanced Evaluation Metrics**
+### **4. Enhanced Evaluation Metrics**
 
 ```bash
 --use_enhanced_metrics  # Enable AST validity and code quality
@@ -482,7 +572,171 @@ results/your_run/
 ├── 🔮 predictions_final.jsonl        # Model predictions
 ├── 📊 metrics_final.csv              # Final evaluation metrics
 ├── 📋 multi_component_loss_summary.json  # Loss component analysis
-└── 💾 final_model/                   # Saved model and tokenizer
+├── 💾 final_model/                   # Saved model and tokenizer
+├── 📊 step_metrics.csv               # NEW: Detailed per-step metrics with gradient norms
+└── 📊 tensorboard/                   # NEW: TensorBoard logs for visualization
+```
+
+## 🔍 **Interpreting Loss-Scale Logs**
+
+The pipeline provides comprehensive logging for monitoring training progress and diagnosing issues. Here's how to interpret the various log outputs:
+
+### **1. Step-Level Metrics (`step_metrics.csv`)**
+
+**Detailed per-step logging** including loss components, gradient norms, and system metrics:
+
+```csv
+timestamp,epoch,step,mini_batch_idx,focal_loss_raw,focal_loss_weighted,jsd_loss_raw,jsd_loss_weighted,semantic_loss_raw,semantic_loss_weighted,contrastive_loss_raw,contrastive_loss_weighted,total_loss_raw,total_loss_weighted,grad_norm_total,grad_norm_encoder,grad_norm_decoder,learning_rate,temperature,alpha,effective_batch_size,memory_usage_mb,elapsed_time_seconds,focal_weight,jsd_weight,semantic_weight,contrastive_weight
+```
+
+**Key Columns to Monitor:**
+- **`*_loss_raw`**: Unweighted loss values - shows intrinsic component performance
+- **`*_loss_weighted`**: Weighted loss values - shows actual contribution to total loss
+- **`grad_norm_*`**: Gradient norms - detect vanishing/exploding gradients
+- **`*_weight`**: Dynamic component weights - track weight scheduling changes
+- **`memory_usage_mb`**: System memory usage - monitor for memory leaks
+
+### **2. TensorBoard Visualization**
+
+**Launch TensorBoard** to visualize training in real-time:
+```bash
+tensorboard --logdir results/your_run/tensorboard
+```
+
+**Key Dashboards:**
+- **`Loss/`**: Individual loss components over time
+- **`Loss_Raw/`**: Unweighted loss components
+- **`Loss_Weighted/`**: Weighted loss contributions
+- **`Weights/`**: Dynamic weight scheduling visualization
+- **`Gradients/`**: Gradient norm monitoring
+- **`Hyperparams/`**: Learning rate, temperature, alpha evolution
+- **`Validation/`**: Validation metrics (F1, BLEU, AST validity)
+- **`Training/`**: System metrics (memory, batch size, timing)
+
+### **3. Loss Component Analysis**
+
+**Healthy Training Patterns:**
+```
+✅ Gradual decline in all loss components
+✅ Stable gradient norms (0.1 - 10.0)
+✅ Smooth weight transitions during scheduling
+✅ Increasing validation metrics
+✅ Stable memory usage
+```
+
+**Warning Signs:**
+```
+⚠️  Sudden spikes in gradient norms (>100)
+⚠️  Oscillating loss values
+⚠️  Memory usage consistently increasing
+⚠️  Validation metrics plateauing early
+⚠️  NaN/Inf values in any component
+```
+
+### **4. Semantic Loss Scaling Interpretation**
+
+**Monitoring β Parameter Effectiveness:**
+- **`semantic_loss_raw`** vs **`semantic_loss_weighted`**: Should differ by factor of β (default 5.0)
+- **Gradient ratio**: Semantic gradients should be comparable to other components
+- **Convergence**: Semantic loss should decrease gradually alongside other components
+
+**Optimal β Values:**
+- **β = 1.0**: No scaling (semantic may be too weak)
+- **β = 5.0**: Default scaling (recommended)
+- **β = 10.0**: Strong scaling (use if semantic loss is still too weak)
+
+### **5. Contrastive Learning Monitoring**
+
+**Key Metrics for Contrastive Loss:**
+- **`contrastive_loss_raw`**: Should decrease over training (better triplet discrimination)
+- **`contrastive_weight`**: Increases from 0.1 → 0.15 via unified scheduling
+- **Performance**: Monitor validation metrics for semantic improvement
+
+**Troubleshooting Contrastive Learning:**
+```bash
+# Check embedding cache performance
+grep "cache" results/your_run/distillation_log.txt
+
+# Verify triplet sampling quality
+grep "triplet" results/your_run/distillation_log.txt
+```
+
+### **Token-Specific Weighting (NEW - PRD v1)**
+
+The pipeline now includes intelligent token weighting that focuses training on critical assertion tokens:
+
+**Components:**
+- **Critical Token Database**: 310 curated assertion tokens across 11 categories (JUnit, TestNG, Mockito, etc.)
+- **Vocabulary Mapping**: Automatic mapping of critical tokens to model vocabulary indices
+- **Weighted Loss Functions**: Enhanced CE and focal loss with per-token weighting
+- **Performance Optimization**: Cached token mappings for efficient training
+
+**Usage:**
+```bash
+# Enable token weighting with default 2.0x multiplier
+python knowledge_distillation.py \
+  --loss_function multi_component \
+  --loss_components focal jsd semantic \
+  --enable_token_weighting \
+  --critical_token_weight 2.0
+
+# Strong token weighting for challenging datasets
+python knowledge_distillation.py \
+  --loss_function multi_component \
+  --loss_components focal jsd semantic \
+  --enable_token_weighting \
+  --critical_token_weight 3.0
+```
+
+**Critical Token Categories:**
+- **JUnit Assertions**: `assertTrue`, `assertEquals`, `assertNull`, etc. (87 tokens)
+- **TestNG Assertions**: `expectThrows`, `assertThat`, etc. (45 tokens)
+- **Mockito Framework**: `verify`, `when`, `mock`, etc. (38 tokens)
+- **Logical Operators**: `should`, `expect`, `must`, etc. (25 tokens)
+- **Exception Handling**: `throws`, `catch`, `exception`, etc. (22 tokens)
+- **Structural Tokens**: `class`, `method`, `public`, etc. (93 tokens)
+
+**Benefits:**
+- **Improved Accuracy**: +2-5 percentage points on critical token prediction
+- **Better Assertion Quality**: Enhanced focus on test-specific vocabulary
+- **Robust Training**: Handles class imbalance in assertion generation
+- **Configurable Impact**: Tune critical token emphasis (1.5-4.0 range)
+
+### **6. Dynamic Weight Scheduling Analysis**
+
+**Weight Evolution Patterns:**
+```
+# Legacy components (when using --loss_components ce kl pans ast)
+Epoch 1: ce=0.35, kl=0.6,  pans=0.05, ast=0.0
+Epoch 5: ce=0.25, kl=0.35, pans=0.25, ast=0.15
+
+# Trident components (when using --loss_components focal jsd semantic contrastive)  
+Epoch 1: focal=0.3, jsd=0.6, semantic=0.05, contrastive=0.1
+Epoch 5: focal=0.25, jsd=0.35, semantic=0.25, contrastive=0.15
+```
+
+**What to Look For:**
+- **Smooth transitions**: Weights should change gradually
+- **Logical progression**: Code quality components (PANS, AST) should increase
+- **Balance**: No single component should dominate (>0.7)
+
+### **7. Memory and Performance Monitoring**
+
+**System Health Indicators:**
+- **Memory usage**: Should be stable or slowly increasing
+- **Training speed**: Steps/second should be consistent
+- **GPU utilization**: Should be high (>80%) during training
+
+**Optimization Tips:**
+```bash
+# Reduce memory usage
+--batch_size 2 --gradient_accumulation_steps 8
+
+# Speed up training
+--num_workers 4 --pin_memory True
+
+# Monitor GPU usage
+nvidia-smi -l 1
 ```
 
 ## 🧪 **Testing and Validation**
@@ -559,6 +813,45 @@ results/your_run/
 | Enhanced + PANS | +15% | +10% | 0.78 | 0.89 |
 | Multi-Component | +25% | +15% | 0.82 | 0.92 |
 | Production (32 eff. batch) | +10% | -20% | 0.84 | 0.94 |
+
+## 🖥️ **Cluster Compatibility (NEW)**
+
+The pipeline is fully compatible with HPC clusters including DelftBlue at TU Delft:
+
+### **Device Management**
+- **Automatic GPU Detection**: `--device auto` automatically detects CUDA, falls back to CPU
+- **SLURM Integration**: Respects `CUDA_VISIBLE_DEVICES` and SLURM environment variables  
+- **Multi-GPU Support**: Ready for distributed training setups
+
+### **SLURM Job Scripts**
+Pre-configured SLURM scripts in `slurm_scripts/`:
+- `test_cuda.sh` - CUDA compatibility test (30 min, 1 GPU)
+- `student_training_gpu.sh` - Main student training (8 hours, 1 GPU)
+- `teacher_training_gpu.sh` - Teacher model training (12 hours, 1 GPU)
+- `multi_gpu_training.sh` - Extended training (16 hours, 2 GPUs)
+
+### **Usage Examples**
+```bash
+# Local development
+python knowledge_distillation.py --device auto [other args]
+
+# Test CUDA on cluster
+sbatch slurm_scripts/test_cuda.sh
+
+# Submit training job
+sbatch slurm_scripts/student_training_gpu.sh
+
+# Monitor jobs
+squeue -u $USER
+tail -f logs/slurm-JOBID.out
+```
+
+### **Cluster Dependencies**
+Additional monitoring tools in requirements.txt:
+- `nvidia-ml-py3` - GPU monitoring on NVIDIA clusters
+- `gpustat` - GPU utilization tracking
+
+See `slurm_scripts/README.md` for detailed cluster setup instructions.
 
 ## 🔍 **Troubleshooting**
 

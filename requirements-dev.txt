@@ -1,0 +1,20 @@
+# Development dependencies (not required for core functionality)
+
+# Optimization and hyperparameter tuning
+optuna>=3.0.0
+plotly>=5.0.0
+
+# Dashboard and monitoring
+streamlit>=1.20.0
+prometheus_client>=0.14.0
+
+# Production deployment
+PyYAML>=6.0
+docker>=6.0.0
+
+# Testing
+pytest>=7.0.0
+
+# Additional utilities
+structlog>=22.0.0
+click>=8.0.0

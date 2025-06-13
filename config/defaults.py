@@ -43,7 +43,11 @@ DEFAULT_SHUFFLE_EVAL = False
 
 # Loss function configurations
 LOSS_FUNCTION_CHOICES = ['traditional', 'enhanced', 'ast_enhanced', 'multi_component']
-LOSS_COMPONENT_CHOICES = ['ce', 'kl', 'pans', 'ast', 'focal', 'jsd', 'semantic']
+LOSS_COMPONENT_CHOICES = ['ce', 'kl', 'pans', 'ast', 'focal', 'jsd', 'semantic', 'contrastive']
+
+# Contrastive learning parameters (Task 2 - PRD v1)
+DEFAULT_CONTRASTIVE_WEIGHT = 0.1  # Initial contrastive weight
+DEFAULT_CONTRASTIVE_TEMPERATURE = 0.1  # InfoNCE temperature
 
 # Default weights for multi-component loss
 DEFAULT_LOSS_WEIGHTS = {
@@ -53,18 +57,34 @@ DEFAULT_LOSS_WEIGHTS = {
     'ast': 0.05,
     'focal': 0.45,  # Similar weight to CE for basic classification
     'jsd': 0.4,     # Similar weight to KL for knowledge distillation
-    'semantic': 0.15  # Moderate weight for semantic similarity
+    'semantic': 0.15,  # Moderate weight for semantic similarity
+    'contrastive': 0.1  # Initial contrastive weight (PRD v1)
 }
 
 # Enhanced loss weights
 DEFAULT_PANS_WEIGHT = 0.12
 DEFAULT_AST_WEIGHT = 0.2
 
-# Dynamic weight scheduling for multi-component loss (AGGRESSIVE PRESET - DEFAULT)
-# This preset emphasizes knowledge distillation (KL) over cross-entropy throughout training
+# Semantic loss scaling parameter (β) for balanced gradient magnitudes
+# Controls the scaling of semantic similarity loss: scaled_sem = β × semantic_loss
+# Higher values increase the impact of semantic similarity in training
+DEFAULT_SEMANTIC_LOSS_SCALE = 5.0  # β parameter from PRD v1
+
+# Semantic loss scaling configuration
+SEMANTIC_SCALING_PARAMS = {
+    'enabled': True,  # Enable semantic loss scaling
+    'scale_factor': DEFAULT_SEMANTIC_LOSS_SCALE,  # β parameter
+    'adaptive': False,  # Future: adaptive scaling based on training progress
+    'min_scale': 1.0,   # Minimum scaling factor
+    'max_scale': 10.0   # Maximum scaling factor
+}
+
+# Dynamic weight scheduling for multi-component loss (UNIFIED SCHEDULING)
 # Linear interpolation strategy: weight = start + progress * (end - start)
 # where progress goes from 0.0 (start of training) to 1.0 (end of training)
+# All loss components are normalized, so exact values matter less than relative proportions
 WEIGHT_SCHEDULING = {
+    # Legacy components (CE + KL + PANS + AST)
     'ce': {
         'start': 0.35,  # Lower CE, prioritizing knowledge transfer
         'end': 0.25     # Further reduced to make room for code components
@@ -80,24 +100,24 @@ WEIGHT_SCHEDULING = {
     'ast': {
         'start': 0.0,   # No initial AST penalty
         'end': 0.15     # Moderate AST growth for syntax
-    }
-}
-
-# TRIDENT LOSS SCHEDULING - For advanced "Trident" configuration with Focal + JSD + Semantic
-# This preset is optimized for the new three-component loss architecture
-# Emphasizes semantic understanding while maintaining knowledge distillation quality
-TRIDENT_WEIGHT_SCHEDULING = {
+    },
+    
+    # Trident components (Focal + JSD + Semantic + Contrastive)
     'focal': {
         'start': 0.3,   # Strong focal loss start for hard example focus
-        'end': 0.3      # Reduced to balance with semantic learning
+        'end': 0.25     # Reduced to balance with semantic and contrastive learning
     },
     'jsd': {
-        'start': 0.7,   # High JSD priority for stable knowledge transfer
-        'end': 0.35     # Maintained but allows semantic growth
+        'start': 0.6,   # High JSD priority for stable knowledge transfer
+        'end': 0.35     # Maintained but allows semantic and contrastive growth
     },
     'semantic': {
-        'start': 0.0,   # Low semantic start to establish foundations
-        'end': 0.35     # Major semantic growth for advanced understanding
+        'start': 0.05,  # Low semantic start to establish foundations
+        'end': 0.25     # Major semantic growth for advanced understanding
+    },
+    'contrastive': {
+        'start': 0.1,   # PRD v1: Start with moderate contrastive weight
+        'end': 0.15     # PRD v1: Increase to strengthen contrastive learning
     }
 }
 
@@ -130,7 +150,7 @@ TRIDENT_WEIGHT_SCHEDULING = {
 
 # Weight normalization settings
 WEIGHT_NORMALIZATION = {
-    'enabled': False,  # Whether to normalize weights to sum to 1.0
+    'enabled': True,   # Whether to normalize weights to sum to 1.0
     'min_weight': 0.01,  # Minimum weight for any component
     'max_weight': 0.8    # Maximum weight for any component
 }
@@ -285,7 +305,7 @@ PROGRESSIVE_SCHEDULING = {
 # ============================================================================
 
 HARDWARE_PARAMS = {
-    'device': 'auto',           # Options: 'auto', 'cpu', 'cuda', 'mps'. Auto detects best available
+    'device': 'auto',           # Options: 'auto', 'cpu', 'cuda'. Auto detects best available
     'mixed_precision': 'fp16',  # Options: 'no', 'fp16', 'bf16'. Use fp16 for most GPUs
     'dataloader_num_workers': 0,     # Tune: 0-8. Number of subprocesses for data loading
     'dataloader_pin_memory': True,   # Pin memory for faster GPU transfer
@@ -414,4 +434,20 @@ TUNING_GUIDELINES = {
             'ast_weight': 0.15
         }
     }
+}
+
+# ============================================================================
+# TOKEN-SPECIFIC WEIGHTING PARAMETERS (Task 4 - PRD v1)
+# ============================================================================
+
+# Critical token weighting for enhanced assertion generation
+DEFAULT_CRITICAL_TOKEN_WEIGHT = 2.0  # Weight multiplier for critical assertion tokens
+DEFAULT_ENABLE_TOKEN_WEIGHTING = False  # Enable token-specific weighting by default
+
+# Token weighting configuration
+TOKEN_WEIGHTING_PARAMS = {
+    'critical_token_weight': DEFAULT_CRITICAL_TOKEN_WEIGHT,  # Tune: 1.5-4.0. Higher = more focus on critical tokens
+    'enable_token_weighting': DEFAULT_ENABLE_TOKEN_WEIGHTING,  # Whether to enable token-specific weighting
+    'cache_token_mappings': True,  # Cache token-to-vocab mappings for performance
+    'apply_to_loss_functions': ['ce', 'focal'],  # Which loss functions use token weighting
 }
