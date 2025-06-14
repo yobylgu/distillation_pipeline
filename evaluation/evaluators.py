@@ -685,8 +685,7 @@ def fast_evaluate(model, tokenizer, dataset, out_dir, device=None, epoch=None, u
             pad_token_id=tokenizer.pad_token_id,
             eos_token_id=tokenizer.eos_token_id,
             do_sample=False,
-            num_beams=1,
-            early_stopping=True
+            num_beams=1
         )
 
         for i in range(generated.size(0)):
