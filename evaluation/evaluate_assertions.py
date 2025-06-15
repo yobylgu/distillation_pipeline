@@ -19,32 +19,23 @@ Usage:
     # Mode 2: Evaluate both teacher and student with comparison
     python evaluation/evaluate_assertions.py \
         --teacher_data data/codet5p-focal-methods/distillation_data_validation.jsonl \
-        --student_model_path results/test_training/2025-06-14_12-08-37_Salesforce-codet5p-220m/final_model
+        --student_model_path results/test_training/2025-06-14_12-08-37_Salesforce-codet5p-220m/final_model \
         --student_limit 200
 """
 
 import json
 import argparse
-import math
-import lz4.frame
-import numpy as np
-import re
 import os
-from typing import Dict, List, Tuple, Optional
-from pathlib import Path
-import difflib
+from typing import Dict, List
 import torch
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
-from tqdm import tqdm
+from datetime import datetime
 
 # Import existing metrics from evaluators.py
 from evaluators import (
     compute_codebleu,
-    compute_bleu,
     compute_pans_score,
     compute_f1_precision_recall,
-    compute_kl_divergence,
-    compute_knowledge_retention_score,
     EnhancedAssertionEvaluator,
     fast_evaluate
 )
@@ -131,8 +122,8 @@ def evaluate_model(predictions: List[str], references: List[List[str]]) -> Dict[
     results['exact_match_total'] = exact_matches
     results['exact_match_ratio'] = round(exact_matches / len(predictions), 7)
 
-    # Semantic similarity (using PANS as proxy, but could be enhanced)
-    results['semantic_similarity'] = round(results['pans'], 7)
+    # Semantic similarity (proper calculation using token overlap and structural analysis)
+    results['semantic_similarity'] = round(evaluator.evaluate_semantic_similarity(predictions, references), 7)
 
     # General similarity score (average of multiple similarity measures)
     similarity_scores = []
@@ -240,9 +231,12 @@ def main():
         print("\n🔍 Loading student predictions...")
         print(f"📊 Loaded {len(val_ds)} student predictions")
         
-        # Run the pipeline's fast evaluation to reproduce metrics_summary
-        output_dir = os.path.join(os.path.dirname(__file__), 'post_hoc_evaluation')
+        # Create timestamped output directory
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        output_dir = os.path.join(os.path.dirname(__file__), 'post_hoc_evaluation', timestamp)
         os.makedirs(output_dir, exist_ok=True)
+        
+        print(f"📁 Output directory: {output_dir}")
         
         metrics = fast_evaluate(
             model,
@@ -338,7 +332,19 @@ def main():
             if key in metrics:
                 gap_dict[key] = round(metrics[key] - teacher_results[key], 7)
         
+        # Add metadata
+        metadata = {
+            'timestamp': timestamp,
+            'student_model_path': args.student_model_path,
+            'validation_dataset_size': len(val_ds),
+            'student_limit': args.student_limit,
+            'teacher_data_path': args.teacher_data,
+            'device_used': args.device,
+            'temperature': args.temperature
+        }
+        
         results_dict = {
+            'metadata': metadata,
             'teacher': teacher_results, 
             'student': metrics,
             'gap': gap_dict

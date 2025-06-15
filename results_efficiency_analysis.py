@@ -199,6 +199,48 @@ results_data = [
         'warmup_steps': 800,
         'notes': 'Highest F1 and BLEU, best overall performance'
     },
+    {
+        'run_name': '20K_Focal+JSD_11h',
+        'samples': 20000,
+        'epochs': 5,
+        'hours': 11.4,  # From 12:09:17 to 23:34:02 = 41084 seconds
+        'loss_function': 'focal+jsd',
+        'final_f1': 0.188,
+        'final_bleu': 0.08,
+        'final_similarity': 0.653,
+        'exact_match_total': 221,
+        'exact_match_ratio': 0.131,
+        'ast_validity': 0.975,
+        'code_quality': 0.496,
+        'learning_rate': 5e-5,
+        'batch_size': 4,
+        'grad_accum': 4,
+        'alpha': 0.5,
+        'temperature': 4.0,
+        'warmup_steps': 1200,
+        'notes': 'Large-scale Focal+JSD training, high AST validity, excellent similarity scores'
+    },
+    {
+        'run_name': '14K_Trident_12h',
+        'samples': 14000,
+        'epochs': 6,
+        'hours': 12.1,  # From 01:26:14 to 13:34:25 = 43691 seconds
+        'loss_function': 'focal+jsd+semantic',
+        'final_f1': 0.162,
+        'final_bleu': 0.075,
+        'final_similarity': 0.644,
+        'exact_match_total': 242,
+        'exact_match_ratio': 0.119,
+        'ast_validity': 0.971,
+        'code_quality': 0.484,
+        'learning_rate': 5e-5,
+        'batch_size': 4,
+        'grad_accum': 4,
+        'alpha': 0.5,
+        'temperature': 4.0,
+        'warmup_steps': 1400,
+        'notes': 'Full Trident loss with semantic component, stable convergence over 6 epochs'
+    },
 ]
 
 def calculate_efficiency_metrics(data: List[Dict]) -> pd.DataFrame:

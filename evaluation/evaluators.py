@@ -635,11 +635,10 @@ class EnhancedAssertionEvaluator:
         
         # Enhanced code quality score (weighted combination emphasizing code-specific metrics)
         quality_score = (
-            0.30 * metrics['codebleu'] +           # Primary: CodeBLEU for code generation
-            0.20 * metrics['ast_validity'] +       # Critical: syntactic correctness
-            0.20 * metrics['pans'] +               # Important: semantic equivalence
+            0.35 * metrics['codebleu'] +           # Primary: CodeBLEU for code generation
+            0.25 * metrics['ast_validity'] +       # Critical: syntactic correctness
             0.15 * metrics['f1'] +                 # Important: overall performance
-            0.10 * metrics['semantic_similarity'] + # Supporting: semantic matching
+            0.15 * metrics['semantic_similarity'] + # Important: semantic matching
             0.05 * metrics['token_accuracy']       # Supporting: exact matching
         )
         metrics['code_quality_score'] = round(quality_score, 6)
