@@ -4,8 +4,8 @@ torch==2.7.0
 numpy==1.24.3
 scikit-learn>=1.0.0
 tqdm>=4.62.0
-sentencepiece>=0.1.96
-sentence-transformers>=2.2.0
+sentencepiece>=0.2.0
+sentence-transformers>=4.1.0
 nltk==3.7
 Levenshtein==0.20.9
 psutil==5.9.4
