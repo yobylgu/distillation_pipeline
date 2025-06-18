@@ -10,6 +10,36 @@ import numpy as np
 from datetime import datetime
 from typing import Dict, List, Optional
 
+def is_colab():
+    """Check if running in Google Colab."""
+    try:
+        import google.colab
+        return True
+    except ImportError:
+        return False
+
+def setup_colab_logging():
+    """Configure logging for Google Colab environments."""
+    if is_colab():
+        # Force unbuffered output in Colab
+        import sys
+        sys.stdout = sys.__stdout__
+        sys.stderr = sys.__stderr__
+        
+        # Set environment variables for better logging
+        os.environ['PYTHONUNBUFFERED'] = '1'
+        os.environ['PYTHONIOENCODING'] = 'utf-8'
+        
+        # Configure logging with immediate flush
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            force=True  # Override any existing configuration
+        )
+        
+        return True
+    return False
+
 # TensorBoard support (Task 3.2)
 try:
     from torch.utils.tensorboard import SummaryWriter
@@ -35,19 +65,36 @@ class DistillationLogger:
         self.step_logs = []
         self.start_time = time.time()
         
+        # Check if running in Colab and setup accordingly
+        self.is_colab = setup_colab_logging()
+        
         # Setup logging
         os.makedirs(output_dir, exist_ok=True)
         log_file = os.path.join(output_dir, 'distillation_log.txt')
         
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler(log_file),
-                logging.StreamHandler()
-            ]
-        )
-        self.logger = logging.getLogger(__name__)
+        # Create file handler with explicit flushing for Colab compatibility
+        file_handler = logging.FileHandler(log_file, mode='w')
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+        
+        # Stream handler for console output
+        stream_handler = logging.StreamHandler()
+        stream_handler.setLevel(logging.INFO)
+        stream_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+        
+        # Configure root logger
+        self.logger = logging.getLogger(f'distillation_{id(self)}')  # Unique logger name
+        self.logger.setLevel(logging.INFO)
+        self.logger.addHandler(file_handler)
+        self.logger.addHandler(stream_handler)
+        
+        # Store handlers for manual flushing
+        self.file_handler = file_handler
+        self.stream_handler = stream_handler
+        
+        # Test logging immediately
+        self.logger.info(f"Distillation logger initialized. Output dir: {output_dir}")
+        self._flush_logs()
         
         # NEW: TensorBoard support (Task 3.2)
         self.tensorboard_writer = None
@@ -66,6 +113,54 @@ class DistillationLogger:
         # NEW: Initialize per-step CSV file for detailed logging (Task 3.1)
         self.step_metrics_file = os.path.join(output_dir, 'step_metrics.csv')
         self._initialize_csv_headers()
+    
+    def _flush_logs(self):
+        """Explicitly flush all logging handlers - crucial for Colab."""
+        try:
+            if hasattr(self, 'file_handler'):
+                self.file_handler.flush()
+            if hasattr(self, 'stream_handler'):
+                self.stream_handler.flush()
+        except Exception as e:
+            print(f"Warning: Failed to flush logs: {e}")
+    
+    def debug_logging_status(self):
+        """Debug method to check logging status - useful for Colab troubleshooting."""
+        status = {
+            'is_colab': self.is_colab,
+            'output_dir': self.output_dir,
+            'output_dir_exists': os.path.exists(self.output_dir),
+            'log_file_path': os.path.join(self.output_dir, 'distillation_log.txt'),
+            'csv_file_path': self.csv_file,
+            'step_metrics_file_path': self.step_metrics_file,
+        }
+        
+        # Check if files exist and are writable
+        for key in ['log_file_path', 'csv_file_path', 'step_metrics_file_path']:
+            file_path = status[key]
+            status[f'{key}_exists'] = os.path.exists(file_path)
+            if os.path.exists(file_path):
+                status[f'{key}_size'] = os.path.getsize(file_path)
+                try:
+                    with open(file_path, 'a') as f:
+                        status[f'{key}_writable'] = True
+                except:
+                    status[f'{key}_writable'] = False
+        
+        print("=== LOGGING DEBUG STATUS ===")
+        for key, value in status.items():
+            print(f"{key}: {value}")
+        print("============================")
+        
+        # Test write to log file
+        try:
+            self.logger.info("DEBUG: Test log message from debug_logging_status()")
+            self._flush_logs()
+            print("✓ Test log message written successfully")
+        except Exception as e:
+            print(f"✗ Failed to write test log message: {e}")
+        
+        return status
     
     def _initialize_csv_headers(self):
         """Initialize CSV headers for both training metrics and detailed step metrics."""
@@ -138,7 +233,7 @@ class DistillationLogger:
         }
         self.step_logs.append(step_log)
         
-        # Write to CSV
+        # Write to CSV with explicit flushing
         with open(self.csv_file, 'a', newline='') as f:
             writer = csv.writer(f)
             # Build row with all loss components dynamically
@@ -149,6 +244,7 @@ class DistillationLogger:
                 hyperparams['temperature'], hyperparams['alpha'], lr, elapsed_time
             ])
             writer.writerow(row)
+            f.flush()  # Ensure immediate write to disk
         
         # Console output every 10 steps with enhanced info
         if step % 10 == 0:
@@ -167,6 +263,7 @@ class DistillationLogger:
                 f"{loss_str} "
                 f"T={hyperparams['temperature']:.3f}, α={hyperparams['alpha']:.3f}"
             )
+            self._flush_logs()  # Force flush after logging
         
         # NEW: Log to TensorBoard (Task 3.2)
         if self.tensorboard_writer:
@@ -251,7 +348,7 @@ class DistillationLogger:
         weighted_scalars = metadata.get('weighted_scalars', {})
         weights = metadata.get('weights', {})
         
-        # Write detailed metrics to step CSV
+        # Write detailed metrics to step CSV with explicit flushing
         with open(self.step_metrics_file, 'a', newline='') as f:
             writer = csv.writer(f)
             
@@ -283,6 +380,7 @@ class DistillationLogger:
                     row.append(weights.get(comp, 0.0))
             
             writer.writerow(row)
+            f.flush()  # Ensure immediate write to disk
         
         # NEW: Log detailed metrics to TensorBoard (Task 3.2)
         if self.tensorboard_writer:
@@ -322,6 +420,8 @@ class DistillationLogger:
                 self.logger.info(f"  AST Validity: {val_metrics['ast_validity']:.4f}")
             if 'code_quality_score' in val_metrics:
                 self.logger.info(f"  Code Quality: {val_metrics['code_quality_score']:.4f}")
+        
+        self._flush_logs()  # Force flush after epoch summary
         
         # Save epoch summary to JSON
         epoch_summary = {
@@ -383,11 +483,13 @@ class DistillationLogger:
             json.dump(report, f, indent=2)
         
         self.logger.info(f"Training report saved to {report_file}")
+        self._flush_logs()  # Final flush
         
         # NEW: Close TensorBoard writer (Task 3.2)
         if self.tensorboard_writer:
             self.tensorboard_writer.close()
             self.logger.info("TensorBoard writer closed")
+            self._flush_logs()
     
     def close(self):
         """

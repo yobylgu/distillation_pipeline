@@ -550,6 +550,9 @@ def main():
     
     logger = DistillationLogger(output_dir, loss_components)
     
+    # Debug logging status for Colab troubleshooting
+    logger.debug_logging_status()
+    
     # Initialize GradScaler for AMP if FP16 is enabled and CUDA is available
     scaler = None
     if args.fp16:
