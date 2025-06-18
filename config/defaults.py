@@ -44,6 +44,9 @@ DEFAULT_SHUFFLE_EVAL = False
 # Mixed precision defaults
 DEFAULT_FP16 = False  # Enable with --fp16 flag for significant performance gains on modern GPUs
 
+# Reproducibility defaults
+DEFAULT_SEED = 42  # Random seed for reproducible training
+
 # Loss function configurations
 LOSS_FUNCTION_CHOICES = ['traditional', 'enhanced', 'ast_enhanced', 'multi_component']
 LOSS_COMPONENT_CHOICES = ['ce', 'kl', 'pans', 'ast', 'focal', 'jsd', 'semantic', 'contrastive']

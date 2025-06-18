@@ -39,6 +39,7 @@ def format_command_from_args(args):
         f"    --max_input_len {args.max_input_len}",
         f"    --max_output_len {args.max_output_len}",
         f"    --model_name {args.model_name}",
+        f"    --seed {args.seed}",
     ])
     
     # Add boolean flags
@@ -126,7 +127,8 @@ def save_training_config_to_json(args, output_dir, filename="training_config.jso
             "lr": args.lr,
             "warmup_steps": args.warmup_steps,
             "weight_decay": args.weight_decay,
-            "validation_frequency": args.validation_frequency
+            "validation_frequency": args.validation_frequency,
+            "seed": args.seed
         },
         "distillation": {
             "alpha": args.alpha,

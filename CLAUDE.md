@@ -47,7 +47,7 @@ python knowledge_distillation.py \
   --val_data_path data/codet5p-focal-methods/distillation_data_validation.jsonl \
   --max_train_samples 1000 --max_val_samples 200 \
   --enable_epoch_sampling \
-  --sampling_seed 42 \
+  --seed 42 --sampling_seed 42 \
   --device auto
 
 # Cluster training (DelftBlue/SLURM)
@@ -65,6 +65,7 @@ python knowledge_distillation.py \
   --enable_token_weighting \
   --critical_token_weight 2.5 \
   --use_enhanced_metrics \
+  --seed 42 \
   --device auto \
   --batch_size 4 --gradient_accumulation_steps 8 --epochs 10 \
   --fp16
@@ -90,6 +91,7 @@ python knowledge_distillation.py \
   --dropout_rate 0.1 \
   --enable_dynamic_weighting \
   --use_enhanced_metrics \
+  --seed 42 \
   --fp16
 
 # Legacy multi-component training
@@ -100,6 +102,7 @@ python knowledge_distillation.py \
   --loss_components ce kl pans ast \
   --enable_dynamic_weighting \
   --use_enhanced_metrics \
+  --seed 42 \
   --device auto \
   --batch_size 4 --gradient_accumulation_steps 8 --epochs 10
 
@@ -202,9 +205,38 @@ python knowledge_distillation.py \
   --train_data_path data/large_dataset.jsonl \
   --max_train_samples 2000 \
   --enable_epoch_sampling \
+  --seed 42 \
   --epochs 10 \
   --device auto
 ```
+
+## Reproducibility and Seeding
+
+The pipeline provides comprehensive seeding for fully reproducible training:
+
+### **Seeding System**
+- **Global Seed**: `--seed` parameter controls all random number generators
+- **Automatic Seeding**: Python random, NumPy, PyTorch CPU/GPU generators
+- **CUDA Determinism**: Enables deterministic CUDA operations when available
+- **Data Shuffling**: Consistent data ordering across identical runs
+- **Worker Processes**: Environment variables set for reproducible data loading
+
+### **Usage Examples**
+```bash
+# Use default seed (42) for reproducible training
+python knowledge_distillation.py --seed 42 [other args...]
+
+# Use custom seed for different random behavior
+python knowledge_distillation.py --seed 123 [other args...]
+
+# Epoch sampling with both global and sampling seeds
+python knowledge_distillation.py --seed 42 --sampling_seed 42 --enable_epoch_sampling [other args...]
+```
+
+### **Seed Parameters**
+- **`--seed`**: Global random seed for all operations (default: 42)
+- **`--sampling_seed`**: Specific seed for epoch sampling when `--enable_epoch_sampling` is used
+- **Consistent Results**: Same seed + same config = identical metrics across runs
 
 ## Configuration System
 

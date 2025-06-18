@@ -71,6 +71,8 @@ import os
 import argparse
 import torch
 import json
+import numpy as np
+import random
 from datetime import datetime
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, get_linear_schedule_with_warmup
 from torch.utils.data import DataLoader
@@ -96,6 +98,42 @@ from utils.command_utils import log_training_command, save_training_config_to_js
 from config import *
 # NEW: Import token weighting defaults (Task 4.2)
 from config.defaults import DEFAULT_CRITICAL_TOKEN_WEIGHT, DEFAULT_RUNNING_AVG_MOMENTUM, DEFAULT_LOSS_NORM_WARMUP_STEPS
+
+
+def set_seed(seed):
+    """
+    Set all random seeds for reproducible training.
+    
+    Args:
+        seed (int): Random seed value
+    """
+    print(f"Setting all random seeds to: {seed}")
+    
+    # Python random module
+    random.seed(seed)
+    
+    # NumPy random
+    np.random.seed(seed)
+    
+    # PyTorch CPU random number generator
+    torch.manual_seed(seed)
+    
+    # PyTorch GPU random number generators (if available)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)  # For multi-GPU setups
+        
+        # Additional CUDA settings for deterministic behavior
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        
+        # Note: These settings may reduce performance but ensure reproducibility
+        print("CUDA deterministic mode enabled for reproducibility")
+    
+    # Set a fixed seed for data loading workers
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    
+    print("All random number generators have been seeded for reproducibility")
 
 
 def check_tensor_validity(tensor, name, logger, step=None):
@@ -206,6 +244,9 @@ def parse_arguments():
     parser.add_argument('--early_stopping_min_delta', type=float, default=DEFAULT_EARLY_STOPPING_MIN_DELTA, help='Minimum improvement required to reset early stopping counter')
     parser.add_argument('--enable_epoch_sampling', action='store_true', help='Enable memory-efficient random sampling per epoch')
     parser.add_argument('--sampling_seed', type=int, default=42, help='Random seed for epoch sampling (default: 42)')
+    
+    # Reproducibility arguments
+    parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducible training (default: 42)')
 
     return parser.parse_args()
 
@@ -432,6 +473,9 @@ def validate_epoch(model, val_loader, device, tokenizer, loss_fn, multi_loss, ar
 def main():
     """Main training and evaluation function."""
     args = parse_arguments()
+    
+    # Set all random seeds for reproducibility
+    set_seed(args.seed)
     
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     model_version_str = args.model_name.replace("/", "-")
