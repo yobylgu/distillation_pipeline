@@ -92,6 +92,18 @@ def setup_loss_function(args, tokenizer, sentence_transformer_model=None):
             codebert_encoder = CodeBERTEncoder()
             triplet_sampler = InBatchTripletSampler()
         
+        # Setup loss normalization parameters
+        loss_normalization_params = {
+            'enabled': not getattr(args, 'disable_loss_normalization', False),  # Enabled by default unless explicitly disabled
+            'momentum': getattr(args, 'loss_norm_momentum', 0.99),
+            'min_scale': 1e-8,
+            'warmup_steps': getattr(args, 'loss_norm_warmup_steps', 100),
+            'normalize_components': components
+        }
+        
+        # Debug: Show actual warmup steps being used
+        print(f"Loss normalization warmup steps: {loss_normalization_params['warmup_steps']} (from CLI: {getattr(args, 'loss_norm_warmup_steps', 'not set')})")
+        
         multi_loss = MultiComponentLoss(
             components, 
             weights, 
@@ -100,8 +112,16 @@ def setup_loss_function(args, tokenizer, sentence_transformer_model=None):
             custom_scheduling=scheduling_config,
             sentence_transformer_model=sentence_transformer_model,
             codebert_encoder=codebert_encoder,
-            triplet_sampler=triplet_sampler
+            triplet_sampler=triplet_sampler,
+            enable_loss_normalization=loss_normalization_params['enabled'],
+            loss_normalization_params=loss_normalization_params
         )
+        
+        # Print loss configuration info
+        if loss_normalization_params['enabled']:
+            print(f"Loss normalization ENABLED: momentum={loss_normalization_params['momentum']}, warmup={loss_normalization_params['warmup_steps']} steps")
+        else:
+            print("Loss normalization DISABLED")
         
         if enable_dynamic_weighting:
             print(f"Using multi-component loss with unified dynamic weight scheduling")

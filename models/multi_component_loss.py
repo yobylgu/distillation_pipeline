@@ -6,11 +6,11 @@ import torch.nn.functional as F
 import numpy as np
 import math
 from typing import Dict, List, Tuple
-from .loss_functions import compute_pans_loss, compute_ast_penalty, compute_focal_loss, compute_jsd_loss, compute_semantic_loss, compute_contrastive_loss, compute_weighted_cross_entropy
+from .loss_functions import compute_pans_loss, compute_ast_penalty, compute_focal_loss, compute_jsd_loss, compute_semantic_loss, compute_contrastive_loss, compute_weighted_cross_entropy, RunningAverageNormalizer
 
 # Import defaults with fallback
 try:
-    from config.defaults import WEIGHT_SCHEDULING
+    from config.defaults import WEIGHT_SCHEDULING, LOSS_NORMALIZATION_PARAMS
 except ImportError:
     # Fallback scheduling configuration (KL-prioritized aggressive preset)
     WEIGHT_SCHEDULING = {
@@ -18,6 +18,14 @@ except ImportError:
         'kl': {'start': 0.6, 'end': 0.35},
         'pans': {'start': 0.05, 'end': 0.25},
         'ast': {'start': 0.0, 'end': 0.15}
+    }
+    # Fallback normalization configuration
+    LOSS_NORMALIZATION_PARAMS = {
+        'enabled': True,
+        'momentum': 0.99,
+        'min_scale': 1e-8,
+        'warmup_steps': 100,
+        'normalize_components': ['focal', 'jsd', 'semantic', 'ce', 'kl', 'pans', 'ast', 'contrastive']
     }
 
 class MultiComponentLoss:
@@ -30,9 +38,10 @@ class MultiComponentLoss:
     
     def __init__(self, components: List[str], weights: List[float], tokenizer=None, 
                  enable_dynamic_weighting: bool = True, custom_scheduling: Dict = None,
-                 sentence_transformer_model=None, semantic_loss_scale: float = 5.0,
+                 sentence_transformer_model=None, 
                  codebert_encoder=None, triplet_sampler=None, contrastive_temperature: float = 0.1,
-                 token_weighter=None):
+                 token_weighter=None, enable_loss_normalization: bool = None,
+                 loss_normalization_params: Dict = None):
         """
         Initialize the multi-component loss.
         
@@ -43,11 +52,12 @@ class MultiComponentLoss:
             enable_dynamic_weighting: Whether to enable dynamic weight scheduling
             custom_scheduling: Optional custom scheduling config, defaults to WEIGHT_SCHEDULING
             sentence_transformer_model: Pre-trained sentence transformer model for semantic loss
-            semantic_loss_scale: β parameter for semantic loss scaling (scaled_sem = β × semantic_loss)
             codebert_encoder: CodeBERT encoder for contrastive learning
             triplet_sampler: Triplet sampler for contrastive learning
             contrastive_temperature: Temperature for InfoNCE loss
             token_weighter: NEW (Task 4.3) - CriticalTokenWeighter for per-token loss weighting
+            enable_loss_normalization: Whether to enable running average normalization
+            loss_normalization_params: Parameters for loss normalization
         """
         if len(components) != len(weights):
             raise ValueError("Components and weights must have same length")
@@ -55,7 +65,6 @@ class MultiComponentLoss:
         self.components = components
         self.tokenizer = tokenizer
         self.sentence_transformer_model = sentence_transformer_model
-        self.semantic_loss_scale = semantic_loss_scale  # β parameter for semantic scaling
         self.codebert_encoder = codebert_encoder  # For contrastive learning
         self.triplet_sampler = triplet_sampler  # For contrastive learning
         self.contrastive_temperature = contrastive_temperature  # InfoNCE temperature
@@ -63,6 +72,21 @@ class MultiComponentLoss:
         self.loss_history = {comp: [] for comp in components}
         self.enable_dynamic_weighting = enable_dynamic_weighting
         self.scheduling_config = custom_scheduling or WEIGHT_SCHEDULING
+        
+        # Initialize running average normalization
+        normalization_config = loss_normalization_params or LOSS_NORMALIZATION_PARAMS
+        self.enable_loss_normalization = enable_loss_normalization if enable_loss_normalization is not None else normalization_config.get('enabled', True)
+        
+        if self.enable_loss_normalization:
+            self.loss_normalizer = RunningAverageNormalizer(
+                momentum=normalization_config.get('momentum', 0.99),
+                min_scale=normalization_config.get('min_scale', 1e-8),
+                warmup_steps=normalization_config.get('warmup_steps', 100),
+                normalize_components=normalization_config.get('normalize_components', components),
+                device=None  # Will be set dynamically based on input tensors
+            )
+        else:
+            self.loss_normalizer = None
         
         # Initialize weights - use scheduled start values if dynamic weighting is enabled
         if enable_dynamic_weighting and self.scheduling_config:
@@ -124,13 +148,10 @@ class MultiComponentLoss:
             return compute_jsd_loss(student_logits, teacher_logits, T)
             
         elif component == 'semantic':
-            # Semantic similarity loss with scaling (β parameter)
+            # Semantic similarity loss (raw, without manual scaling)
             if self.tokenizer is None or self.sentence_transformer_model is None:
                 return torch.tensor(0.0, device=device, requires_grad=True)
-            raw_semantic_loss = compute_semantic_loss(student_logits, labels, self.tokenizer, self.sentence_transformer_model)
-            # Apply semantic scaling: scaled_sem = β × semantic_loss
-            scaled_semantic_loss = self.semantic_loss_scale * raw_semantic_loss
-            return scaled_semantic_loss
+            return compute_semantic_loss(student_logits, labels, self.tokenizer, self.sentence_transformer_model)
             
         elif component == 'pans':
             # Position-Aware N-gram Similarity Loss
@@ -184,8 +205,11 @@ class MultiComponentLoss:
         # Enhanced logging: track raw scalars per mini-batch
         raw_component_scalars = {}
         weighted_component_scalars = {}
+        normalized_component_scalars = {}
         
-        for component, weight in zip(self.components, weights):
+        # Compute all raw loss components first
+        raw_loss_components = {}
+        for component in self.components:
             try:
                 loss = self.compute_component_loss(
                     component, student_logits, teacher_logits, labels, T, alpha, **kwargs
@@ -194,39 +218,71 @@ class MultiComponentLoss:
                 # Check for NaN/Inf in individual component loss
                 if torch.isnan(loss).any() or torch.isinf(loss).any():
                     print(f"Warning: NaN/Inf detected in {component} loss component: {loss}")
-                    component_losses[component] = 0.0
-                    raw_component_scalars[component] = 0.0
-                    weighted_component_scalars[component] = 0.0
+                    raw_loss_components[component] = torch.tensor(0.0, device=device, requires_grad=True)
                     continue
                 
-                # Store raw scalar value (before weighting)
-                raw_scalar = loss.item() if hasattr(loss, 'item') else float(loss)
-                raw_component_scalars[component] = raw_scalar
-                
-                # Store weighted scalar value
-                weighted_scalar = (weight * loss).item() if hasattr(weight * loss, 'item') else float(weight * loss)
-                weighted_component_scalars[component] = weighted_scalar
-                
-                component_losses[component] = raw_scalar
-                
-                # Check component loss value after conversion
-                if math.isnan(component_losses[component]) or math.isinf(component_losses[component]):
-                    print(f"Warning: NaN/Inf in {component} after conversion: {component_losses[component]}")
-                    component_losses[component] = 0.0
-                    raw_component_scalars[component] = 0.0
-                    weighted_component_scalars[component] = 0.0
-                    continue
-                
-                total_loss = total_loss + weight * loss
-                
-                # Store in history for potential adaptive weighting
-                self.loss_history[component].append(component_losses[component])
+                raw_loss_components[component] = loss
                 
             except Exception as e:
                 print(f"Warning: Error computing {component} loss: {e}")
+                raw_loss_components[component] = torch.tensor(0.0, device=device, requires_grad=True)
+        
+        # Apply running average normalization if enabled
+        if self.loss_normalizer is not None:
+            # Set device for normalizer if not already set
+            if self.loss_normalizer.device != device:
+                self.loss_normalizer.device = device
+            
+            # Normalize loss components
+            normalized_loss_components = self.loss_normalizer.update_and_normalize(raw_loss_components)
+        else:
+            # Use raw components if normalization is disabled
+            normalized_loss_components = raw_loss_components
+        
+        # Combine normalized losses with weights
+        for component, weight in zip(self.components, weights):
+            if component not in normalized_loss_components:
                 component_losses[component] = 0.0
                 raw_component_scalars[component] = 0.0
+                normalized_component_scalars[component] = 0.0
                 weighted_component_scalars[component] = 0.0
+                continue
+            
+            raw_loss = raw_loss_components[component]
+            normalized_loss = normalized_loss_components[component]
+            
+            # Store raw scalar value (before normalization and weighting)
+            raw_scalar = raw_loss.item() if hasattr(raw_loss, 'item') else float(raw_loss)
+            raw_component_scalars[component] = raw_scalar
+            
+            # Store normalized scalar value (after normalization, before weighting)
+            normalized_scalar = normalized_loss.item() if hasattr(normalized_loss, 'item') else float(normalized_loss)
+            normalized_component_scalars[component] = normalized_scalar
+            
+            # Store weighted scalar value (after both normalization and weighting)
+            weighted_scalar = (weight * normalized_loss).item() if hasattr(weight * normalized_loss, 'item') else float(weight * normalized_loss)
+            weighted_component_scalars[component] = weighted_scalar
+            
+            # Use normalized scalar for logging when normalization is active
+            if self.loss_normalizer is not None and self.loss_normalizer.step_count > self.loss_normalizer.warmup_steps:
+                component_losses[component] = normalized_scalar  # Show normalized values after warmup
+            else:
+                component_losses[component] = raw_scalar  # Show raw values during warmup
+            
+            # Check component loss value after conversion
+            if math.isnan(component_losses[component]) or math.isinf(component_losses[component]):
+                print(f"Warning: NaN/Inf in {component} after conversion: {component_losses[component]}")
+                component_losses[component] = 0.0
+                raw_component_scalars[component] = 0.0
+                normalized_component_scalars[component] = 0.0
+                weighted_component_scalars[component] = 0.0
+                continue
+            
+            # Add to total loss (using normalized and weighted loss)
+            total_loss = total_loss + weight * normalized_loss
+            
+            # Store in history for potential adaptive weighting
+            self.loss_history[component].append(component_losses[component])
         
         # Calculate traditional combined loss for compatibility
         if 'ce' in component_losses and 'kl' in component_losses:
@@ -235,15 +291,22 @@ class MultiComponentLoss:
         
         component_losses['total'] = total_loss.item() if hasattr(total_loss, 'item') else float(total_loss)
         
-        # Enhanced logging metadata
-        component_losses['_meta'] = {
+        # Enhanced logging metadata with normalization statistics
+        meta_data = {
             'step': step,
             'raw_scalars': raw_component_scalars,
+            'normalized_scalars': normalized_component_scalars,
             'weighted_scalars': weighted_component_scalars,
             'weights': {comp: weight.item() for comp, weight in zip(self.components, weights)},
-            'semantic_loss_scale': self.semantic_loss_scale,  # Track β parameter
+            'normalization_enabled': self.enable_loss_normalization,
             'timestamp': torch.tensor(0.0).item()  # Placeholder for timestamp if needed
         }
+        
+        # Add normalization statistics if enabled
+        if self.loss_normalizer is not None:
+            meta_data['normalization_stats'] = self.loss_normalizer.get_normalization_stats()
+        
+        component_losses['_meta'] = meta_data
         
         return total_loss, component_losses
     

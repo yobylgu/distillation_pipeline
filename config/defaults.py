@@ -36,10 +36,13 @@ DEFAULT_LOSS_COMPONENTS = ['focal', 'jsd', 'semantic']  # Trident components
 DEFAULT_ENABLE_DYNAMIC_WEIGHTING = True
 
 # DataLoader defaults
-DEFAULT_NUM_WORKERS = 0
-DEFAULT_PIN_MEMORY = False
+DEFAULT_NUM_WORKERS = 4  # Conservative default that works on most systems (including M1 MacBook Pro)
+DEFAULT_PIN_MEMORY = True  # Already enabled in the code, documenting here
 DEFAULT_SHUFFLE_TRAIN = True
 DEFAULT_SHUFFLE_EVAL = False
+
+# Mixed precision defaults
+DEFAULT_FP16 = False  # Enable with --fp16 flag for significant performance gains on modern GPUs
 
 # Loss function configurations
 LOSS_FUNCTION_CHOICES = ['traditional', 'enhanced', 'ast_enhanced', 'multi_component']
@@ -65,18 +68,19 @@ DEFAULT_LOSS_WEIGHTS = {
 DEFAULT_PANS_WEIGHT = 0.12
 DEFAULT_AST_WEIGHT = 0.2
 
-# Semantic loss scaling parameter (β) for balanced gradient magnitudes
-# Controls the scaling of semantic similarity loss: scaled_sem = β × semantic_loss
-# Higher values increase the impact of semantic similarity in training
-DEFAULT_SEMANTIC_LOSS_SCALE = 5.0  # β parameter from PRD v1
+# Running Average Normalization for balanced gradient magnitudes
+# Normalizes each loss component by its running average to ensure similar scales
+DEFAULT_RUNNING_AVG_MOMENTUM = 0.99  # Momentum for exponential moving average
+DEFAULT_ENABLE_LOSS_NORMALIZATION = True  # Enable running average normalization
+DEFAULT_LOSS_NORM_WARMUP_STEPS = 100  # Steps to accumulate before applying normalization
 
-# Semantic loss scaling configuration
-SEMANTIC_SCALING_PARAMS = {
-    'enabled': True,  # Enable semantic loss scaling
-    'scale_factor': DEFAULT_SEMANTIC_LOSS_SCALE,  # β parameter
-    'adaptive': False,  # Future: adaptive scaling based on training progress
-    'min_scale': 1.0,   # Minimum scaling factor
-    'max_scale': 10.0   # Maximum scaling factor
+# Running average normalization configuration
+LOSS_NORMALIZATION_PARAMS = {
+    'enabled': DEFAULT_ENABLE_LOSS_NORMALIZATION,  # Enable running average normalization
+    'momentum': DEFAULT_RUNNING_AVG_MOMENTUM,  # Exponential moving average momentum (0.9-0.999)
+    'min_scale': 1e-8,  # Minimum running average to prevent division by zero
+    'warmup_steps': DEFAULT_LOSS_NORM_WARMUP_STEPS,  # Steps to accumulate before applying normalization
+    'normalize_components': ['focal', 'jsd', 'semantic', 'ce', 'kl', 'pans', 'ast', 'contrastive']  # Which components to normalize
 }
 
 # Dynamic weight scheduling for multi-component loss (UNIFIED SCHEDULING)
@@ -121,32 +125,6 @@ WEIGHT_SCHEDULING = {
     }
 }
 
-# ALTERNATIVE SCHEDULING PRESETS (COMMENTED OUT - MODIFY WEIGHT_SCHEDULING ABOVE TO USE)
-# Uncomment and modify WEIGHT_SCHEDULING if you want to experiment with different strategies:
-#
-# CODE_QUALITY_FOCUSED PRESET - Emphasizes code understanding with balanced foundation:
-# WEIGHT_SCHEDULING = {
-#     'ce': {'start': 0.5, 'end': 0.3},        # Moderate initial CE for stable foundation
-#     'kl': {'start': 0.35, 'end': 0.3},       # Balanced KL for knowledge transfer
-#     'pans': {'start': 0.1, 'end': 0.25},     # Strong initial PANS for early code patterns
-#     'ast': {'start': 0.05, 'end': 0.15}      # Early syntax awareness
-# }
-#
-# CONSERVATIVE PRESET - Gentler transitions, more stable training:
-# WEIGHT_SCHEDULING = {
-#     'ce': {'start': 0.55, 'end': 0.45},      # Minimal CE reduction
-#     'kl': {'start': 0.4, 'end': 0.4},        # Consistent KL throughout
-#     'pans': {'start': 0.05, 'end': 0.1},     # Small PANS increase
-#     'ast': {'start': 0.0, 'end': 0.05}       # Minimal AST penalty
-# }
-#
-# STABILITY_FIRST PRESET - Prioritizes training stability over aggressive adaptation:
-# WEIGHT_SCHEDULING = {
-#     'ce': {'start': 0.7, 'end': 0.5},        # High CE maintained
-#     'kl': {'start': 0.3, 'end': 0.35},       # Slight KL increase
-#     'pans': {'start': 0.0, 'end': 0.1},      # Conservative PANS growth
-#     'ast': {'start': 0.0, 'end': 0.05}       # Minimal AST penalty
-# }
 
 # Weight normalization settings
 WEIGHT_NORMALIZATION = {

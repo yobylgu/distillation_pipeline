@@ -678,3 +678,155 @@ def ast_enhanced_loss(student_logits: torch.Tensor, teacher_logits: torch.Tensor
     component_losses['total'] = total_loss.item() if hasattr(total_loss, 'item') else float(total_loss)
     
     return total_loss, component_losses
+
+
+class RunningAverageNormalizer:
+    """
+    Running Average Normalizer for balancing loss component magnitudes.
+    
+    This class maintains exponential moving averages of loss components and normalizes
+    them to ensure all components contribute similar gradient magnitudes during training.
+    This addresses the issue where different loss functions have inherently different
+    numerical scales (e.g., focal loss ~0.1-1.0 vs JSD loss ~10.0-12.0).
+    
+    The normalization formula is: normalized_loss = raw_loss / running_average_loss
+    where running_average is updated as: avg = momentum * avg + (1-momentum) * raw_loss
+    """
+    
+    def __init__(self, momentum: float = 0.99, min_scale: float = 1e-8, 
+                 warmup_steps: int = 100, normalize_components: List[str] = None,
+                 device: torch.device = None):
+        """
+        Initialize the running average normalizer.
+        
+        Args:
+            momentum: Exponential moving average momentum (0.9-0.999)
+            min_scale: Minimum running average to prevent division by zero
+            warmup_steps: Number of steps before applying normalization
+            normalize_components: List of loss component names to normalize
+            device: PyTorch device for tensor operations
+        """
+        self.momentum = momentum
+        self.min_scale = min_scale
+        self.warmup_steps = warmup_steps
+        self.device = device or torch.device('cpu')
+        
+        # Components to normalize
+        self.normalize_components = normalize_components or [
+            'focal', 'jsd', 'semantic', 'ce', 'kl', 'pans', 'ast', 'contrastive'
+        ]
+        
+        # Running averages for each loss component
+        self.running_averages = {}
+        
+        # Step counter for warmup
+        self.step_count = 0
+        
+        # Initialize all components to None (will be set on first update)
+        for component in self.normalize_components:
+            self.running_averages[component] = None
+    
+    def update_and_normalize(self, loss_components: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """
+        Update running averages and normalize loss components.
+        
+        Args:
+            loss_components: Dictionary of raw loss values {component_name: loss_tensor}
+            
+        Returns:
+            Dictionary of normalized loss values {component_name: normalized_loss_tensor}
+        """
+        self.step_count += 1
+        normalized_components = {}
+        
+        for component_name, raw_loss in loss_components.items():
+            if component_name not in self.normalize_components:
+                # Don't normalize this component, pass through unchanged
+                normalized_components[component_name] = raw_loss
+                continue
+            
+            # Convert to scalar if tensor
+            if isinstance(raw_loss, torch.Tensor):
+                raw_value = raw_loss.item() if raw_loss.requires_grad else raw_loss.detach().item()
+                device = raw_loss.device
+            else:
+                raw_value = float(raw_loss)
+                device = self.device
+            
+            # Skip invalid values
+            if torch.isnan(torch.tensor(raw_value)) or torch.isinf(torch.tensor(raw_value)):
+                normalized_components[component_name] = raw_loss
+                continue
+            
+            # Initialize running average on first encounter
+            if self.running_averages[component_name] is None:
+                self.running_averages[component_name] = abs(raw_value)
+                normalized_components[component_name] = raw_loss
+                continue
+            
+            # Update running average using exponential moving average
+            current_avg = self.running_averages[component_name]
+            new_avg = self.momentum * current_avg + (1 - self.momentum) * abs(raw_value)
+            self.running_averages[component_name] = new_avg
+            
+            # Apply normalization after warmup period
+            if self.step_count > self.warmup_steps and new_avg > self.min_scale:
+                # Normalize: normalized_loss = raw_loss / running_average
+                normalization_factor = max(new_avg, self.min_scale)
+                
+                if isinstance(raw_loss, torch.Tensor):
+                    normalized_loss = raw_loss / normalization_factor
+                else:
+                    normalized_loss = torch.tensor(raw_value / normalization_factor, 
+                                                 device=device, requires_grad=True)
+                
+                normalized_components[component_name] = normalized_loss
+            else:
+                # During warmup, pass through unchanged
+                normalized_components[component_name] = raw_loss
+        
+        return normalized_components
+    
+    def get_normalization_stats(self) -> Dict[str, float]:
+        """
+        Get current normalization statistics for logging.
+        
+        Returns:
+            Dictionary with running averages and normalization factors
+        """
+        stats = {
+            'step_count': self.step_count,
+            'warmup_complete': self.step_count > self.warmup_steps
+        }
+        
+        for component, avg in self.running_averages.items():
+            if avg is not None:
+                stats[f'{component}_running_avg'] = avg
+                stats[f'{component}_norm_factor'] = max(avg, self.min_scale)
+        
+        return stats
+    
+    def reset(self):
+        """Reset all running averages and step count."""
+        self.running_averages = {comp: None for comp in self.normalize_components}
+        self.step_count = 0
+    
+    def state_dict(self) -> Dict:
+        """Get state dictionary for checkpointing."""
+        return {
+            'running_averages': self.running_averages,
+            'step_count': self.step_count,
+            'momentum': self.momentum,
+            'min_scale': self.min_scale,
+            'warmup_steps': self.warmup_steps,
+            'normalize_components': self.normalize_components
+        }
+    
+    def load_state_dict(self, state_dict: Dict):
+        """Load state dictionary from checkpoint."""
+        self.running_averages = state_dict.get('running_averages', {})
+        self.step_count = state_dict.get('step_count', 0)
+        self.momentum = state_dict.get('momentum', self.momentum)
+        self.min_scale = state_dict.get('min_scale', self.min_scale)
+        self.warmup_steps = state_dict.get('warmup_steps', self.warmup_steps)
+        self.normalize_components = state_dict.get('normalize_components', self.normalize_components)

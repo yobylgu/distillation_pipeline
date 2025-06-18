@@ -1,0 +1,44 @@
+# Core ML and NLP dependencies for Google Colab
+# Let Colab resolve versions automatically to avoid conflicts
+
+# Essential transformers and tokenizers
+transformers>=4.30.0
+tokenizers
+sentencepiece
+
+# PyTorch ecosystem (Colab has CUDA-enabled PyTorch)
+accelerate
+
+# Sentence embeddings for semantic loss
+sentence-transformers
+
+# Data processing and utilities
+datasets
+scikit-learn
+pandas
+numpy
+
+# NLP evaluation metrics
+nltk
+sacrebleu
+
+# Code analysis
+javalang
+codebleu
+
+# Compression for teacher logits
+lz4
+
+# Progress bars and utilities
+tqdm
+psutil
+
+# Logging and monitoring
+tensorboard
+
+# String similarity (for PANS loss)
+python-Levenshtein
+
+# Visualization
+matplotlib
+seaborn

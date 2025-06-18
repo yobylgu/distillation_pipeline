@@ -35,13 +35,36 @@ python knowledge_distillation.py \
     --loss_components focal jsd semantic \
     --enable_dynamic_weighting \
     --dropout_rate 0.1 \
-    --early_stopping_patience 10
     --use_enhanced_metrics \
     --validation_frequency 10 \
     --max_input_len 512 \
     --max_output_len 128 \
     --model_name Salesforce/codet5p-220m
 
+    python knowledge_distillation.py \
+      --train_data_path data/codet5p-focal-methods/distillation_data_training.jsonl \
+      --val_data_path data/codet5p-focal-methods/distillation_data_validation.jsonl \
+      --max_train_samples 5000 \
+      --max_val_samples 1000 \
+      --batch_size 4 \
+      --epochs 10 \
+      --gradient_accumulation_steps 4 \
+      --lr 5e-5 \
+      --warmup_steps 1000 \
+      --weight_decay 0.01 \
+      --alpha 0.5 \
+      --temperature 4 \
+      --output_dir results/test_training \
+      --loss_function multi_component \
+      --loss_components focal jsd semantic \
+      --enable_dynamic_weighting \
+      --dropout_rate 0.1 \
+      --early_stopping_patience 15 \
+      --validation_frequency 2 \
+      --use_enhanced_metrics \
+      --num_workers 4 \
+      --sampling_seed 42 \
+      --enable_epoch_sampling
 For more configuration options, see config/defaults.py or run with --help
 """
 import os
@@ -54,10 +77,11 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 import math
 import shutil
-from torch.nn import Dropout #
+from torch.nn import Dropout
+from torch.cuda.amp import GradScaler, autocast
 
 # Import our modular components
-from data import AssertionDataset, optimized_collate_fn
+from data import AssertionDataset, EpochSamplingDataset, optimized_collate_fn
 from models import (
     optimized_distillation_loss_with_logging,
     enhanced_distillation_loss,
@@ -71,7 +95,7 @@ from utils.device_utils import setup_device
 from utils.command_utils import log_training_command, save_training_config_to_json
 from config import *
 # NEW: Import token weighting defaults (Task 4.2)
-from config.defaults import DEFAULT_CRITICAL_TOKEN_WEIGHT
+from config.defaults import DEFAULT_CRITICAL_TOKEN_WEIGHT, DEFAULT_RUNNING_AVG_MOMENTUM, DEFAULT_LOSS_NORM_WARMUP_STEPS
 
 
 def check_tensor_validity(tensor, name, logger, step=None):
@@ -160,6 +184,11 @@ def parse_arguments():
     parser.add_argument('--dropout_rate', type=float, default=0.1, help='Dropout rate for regularization')
     parser.add_argument('--enable_dynamic_weighting', action='store_true', help='Enable dynamic weight scheduling for multi-component loss')
     
+    # NEW: Loss normalization arguments  
+    parser.add_argument('--disable_loss_normalization', action='store_true', help='Disable running average normalization for loss components (enabled by default)')
+    parser.add_argument('--loss_norm_momentum', type=float, default=DEFAULT_RUNNING_AVG_MOMENTUM, help='Momentum for running average loss normalization (0.9-0.999)')
+    parser.add_argument('--loss_norm_warmup_steps', type=int, default=DEFAULT_LOSS_NORM_WARMUP_STEPS, help='Warmup steps before applying loss normalization')
+    
     # NEW: Token-specific weighting arguments (Task 4.2)
     parser.add_argument('--enable_token_weighting', action='store_true', help='Enable token-specific weighting for critical assertion tokens')
     parser.add_argument('--critical_token_weight', type=float, default=DEFAULT_CRITICAL_TOKEN_WEIGHT, help='Weight multiplier for critical tokens (default 2.0)')
@@ -167,10 +196,16 @@ def parse_arguments():
     # Hardware arguments
     parser.add_argument('--device', default=HARDWARE_PARAMS['device'], choices=['auto', 'cpu', 'cuda', 'cuda:0', 'cuda:1'], 
                        help='Device to use for training (auto, cpu, cuda, or specific GPU like cuda:0)')
+    parser.add_argument('--fp16', action='store_true', help='Enable automatic mixed precision (FP16) training')
+    parser.add_argument('--num_workers', type=int, default=DEFAULT_NUM_WORKERS, help='Number of data loading workers (default: 4)')
     
     # Other arguments
     parser.add_argument('--use_enhanced_metrics', action='store_true', help='Use enhanced assertion evaluation metrics')
-    parser.add_argument('--validation_frequency', type=int, default=DEFAULT_VALIDATION_FREQUENCY, help='Validate every N epochs')
+    parser.add_argument('--validation_frequency', type=int, default=DEFAULT_VALIDATION_FREQUENCY, help='Validate every N epochs (set to 0 to disable validation and early stopping)')
+    parser.add_argument('--early_stopping_patience', type=int, default=DEFAULT_EARLY_STOPPING_PATIENCE, help='Early stopping patience (number of epochs without improvement)')
+    parser.add_argument('--early_stopping_min_delta', type=float, default=DEFAULT_EARLY_STOPPING_MIN_DELTA, help='Minimum improvement required to reset early stopping counter')
+    parser.add_argument('--enable_epoch_sampling', action='store_true', help='Enable memory-efficient random sampling per epoch')
+    parser.add_argument('--sampling_seed', type=int, default=42, help='Random seed for epoch sampling (default: 42)')
 
     return parser.parse_args()
 
@@ -212,28 +247,54 @@ def setup_model_and_tokenizer(model_name, device, dropout_rate):
 
 def setup_datasets(args, tokenizer):
     """Setup training and validation datasets."""
-    train_ds = AssertionDataset(
-        args.train_data_path, tokenizer, 
-        max_input_len=args.max_input_len, max_output_len=args.max_output_len, max_samples=args.max_train_samples
-    )
+    if args.enable_epoch_sampling:
+        print("Using EpochSamplingDataset for memory-efficient training")
+        train_ds = EpochSamplingDataset(
+            args.train_data_path, tokenizer, 
+            max_input_len=args.max_input_len, max_output_len=args.max_output_len, 
+            max_samples=args.max_train_samples, seed=args.sampling_seed
+        )
+    else:
+        print("Using standard AssertionDataset")
+        train_ds = AssertionDataset(
+            args.train_data_path, tokenizer, 
+            max_input_len=args.max_input_len, max_output_len=args.max_output_len, max_samples=args.max_train_samples
+        )
+    
+    # Validation dataset always uses standard loading (smaller, needs consistency)
     val_ds = AssertionDataset(
         args.val_data_path, tokenizer,
         max_input_len=args.max_input_len, max_output_len=args.max_output_len, max_samples=args.max_val_samples
     )
-    if not train_ds:
-        raise ValueError("Training data is empty. Please check the path and content.")
+    
+    # For epoch sampling, we need to check total dataset size instead of loaded samples
+    if args.enable_epoch_sampling:
+        if train_ds.total_dataset_size == 0:
+            raise ValueError("Training data is empty. Please check the path and content.")
+    else:
+        if not train_ds:
+            raise ValueError("Training data is empty. Please check the path and content.")
+    
     return train_ds, val_ds
 
 
 def setup_training(args, train_ds, model):
     """Setup data loaders, optimizer, and scheduler."""
-    train_loader = DataLoader(
-        train_ds, batch_size=args.batch_size, shuffle=True, 
-        collate_fn=optimized_collate_fn, num_workers=DEFAULT_NUM_WORKERS, pin_memory=True
-    )
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    # For epoch sampling, we'll create the train_loader dynamically each epoch
+    if args.enable_epoch_sampling:
+        # Create a dummy loader to estimate total steps (will be recreated each epoch)
+        # Assume max_samples for step calculation
+        estimated_steps_per_epoch = max(1, args.max_train_samples // args.batch_size)
+        total_steps = estimated_steps_per_epoch // args.gradient_accumulation_steps * args.epochs
+        train_loader = None  # Will be created each epoch
+    else:
+        train_loader = DataLoader(
+            train_ds, batch_size=args.batch_size, shuffle=True, 
+            collate_fn=optimized_collate_fn, num_workers=args.num_workers, pin_memory=True
+        )
+        total_steps = len(train_loader) // args.gradient_accumulation_steps * args.epochs
     
-    total_steps = len(train_loader) // args.gradient_accumulation_steps * args.epochs
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scheduler = get_linear_schedule_with_warmup(
         optimizer, num_warmup_steps=args.warmup_steps, num_training_steps=total_steps
     )
@@ -241,7 +302,7 @@ def setup_training(args, train_ds, model):
 
 
 # MODIFICATION: Added dynamic weight logic from v2
-def train_epoch(model, train_loader, optimizer, scheduler, logger, loss_fn, multi_loss, args, epoch, device):
+def train_epoch(model, train_loader, optimizer, scheduler, logger, loss_fn, multi_loss, args, epoch, device, scaler=None):
     """Train for one epoch."""
     model.train()
     total_loss = 0
@@ -262,37 +323,45 @@ def train_epoch(model, train_loader, optimizer, scheduler, logger, loss_fn, mult
         lbl = batch['labels'].to(device)
         teacher_logits = batch['teacher_logits'].to(device)
 
-        outputs = model(input_ids=inp, attention_mask=att, labels=lbl)
+        # Use autocast for mixed precision if scaler is provided
+        use_amp = scaler is not None
         
-        if not check_tensor_validity(outputs.logits, "student_logits", logger, step):
-            continue
-
-        temperature, alpha = get_dynamic_hyperparams(epoch, args.epochs, logger.get_loss_history())
-        
-        loss_components = {}
-        if args.loss_function == 'multi_component' and multi_loss:
-            # Dynamic weight update logic from v2
-            if args.enable_dynamic_weighting and hasattr(multi_loss, 'update_weights'):
-                 old_weights = multi_loss.get_current_weights() if hasattr(multi_loss, 'get_current_weights') else None
-                 multi_loss.update_weights(epoch, args.epochs)
-                 new_weights = multi_loss.get_current_weights() if hasattr(multi_loss, 'get_current_weights') else None
-                 if old_weights and new_weights and old_weights != new_weights:
-                    logger.logger.info(f"Weight update at epoch {epoch+1}: {new_weights}")
-
-            loss, loss_components = multi_loss.compute(outputs.logits, teacher_logits, lbl, T=temperature, alpha=alpha)
-        elif args.loss_function == 'traditional':
-             loss, loss_components = optimized_distillation_loss_with_logging(outputs.logits, teacher_logits, lbl, T=temperature, alpha=alpha)
-        else: 
-            loss = outputs.loss
-            loss_components['total'] = loss.item()
-            loss_components['ce'] = loss.item()
-
-
-        if not check_tensor_validity(loss, "loss", logger, step):
-            continue
+        with autocast() if use_amp else torch.no_grad() if False else torch.enable_grad():
+            outputs = model(input_ids=inp, attention_mask=att, labels=lbl)
             
-        loss = loss / args.gradient_accumulation_steps
-        loss.backward()
+            if not check_tensor_validity(outputs.logits, "student_logits", logger, step):
+                continue
+
+            temperature, alpha = get_dynamic_hyperparams(epoch, args.epochs, logger.get_loss_history())
+            
+            loss_components = {}
+            if args.loss_function == 'multi_component' and multi_loss:
+                # Dynamic weight update logic from v2
+                if args.enable_dynamic_weighting and hasattr(multi_loss, 'update_weights'):
+                     old_weights = multi_loss.get_current_weights() if hasattr(multi_loss, 'get_current_weights') else None
+                     multi_loss.update_weights(epoch, args.epochs)
+                     new_weights = multi_loss.get_current_weights() if hasattr(multi_loss, 'get_current_weights') else None
+                     if old_weights and new_weights and old_weights != new_weights:
+                        logger.logger.info(f"Weight update at epoch {epoch+1}: {new_weights}")
+
+                loss, loss_components = multi_loss.compute(outputs.logits, teacher_logits, lbl, T=temperature, alpha=alpha)
+            elif args.loss_function == 'traditional':
+                 loss, loss_components = optimized_distillation_loss_with_logging(outputs.logits, teacher_logits, lbl, T=temperature, alpha=alpha)
+            else: 
+                loss = outputs.loss
+                loss_components['total'] = loss.item()
+                loss_components['ce'] = loss.item()
+
+            if not check_tensor_validity(loss, "loss", logger, step):
+                continue
+                
+            loss = loss / args.gradient_accumulation_steps
+
+        # Use scaled backward pass for AMP
+        if use_amp:
+            scaler.scale(loss).backward()
+        else:
+            loss.backward()
         
         # NEW: Log detailed step metrics including gradient norms (Task 3.1)
         mini_batch_idx = step % args.gradient_accumulation_steps
@@ -304,8 +373,16 @@ def train_epoch(model, train_loader, optimizer, scheduler, logger, loss_fn, mult
         )
 
         if (step + 1) % args.gradient_accumulation_steps == 0:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=DEFAULT_MAX_GRAD_NORM)
-            optimizer.step()
+            if use_amp:
+                # Unscale gradients before clipping for AMP
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=DEFAULT_MAX_GRAD_NORM)
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=DEFAULT_MAX_GRAD_NORM)
+                optimizer.step()
+            
             scheduler.step()
             optimizer.zero_grad()
         
@@ -363,6 +440,14 @@ def main():
     print(f"Results will be saved to: {output_dir}")
 
     device = setup_device(args.device)
+    
+    # Log training configuration summary
+    print(f"Training Configuration Summary:")
+    print(f"  Device: {device}")
+    print(f"  FP16: {args.fp16} ({'will be enabled' if torch.cuda.is_available() and device.type == 'cuda' and args.fp16 else 'disabled/not supported'})")
+    print(f"  DataLoader workers: {args.num_workers}")
+    print(f"  Batch size: {args.batch_size} (effective: {args.batch_size * args.gradient_accumulation_steps})")
+    
     # Pass the dropout rate to the setup function
     model, tokenizer = setup_model_and_tokenizer(args.model_name, device, args.dropout_rate)
 
@@ -371,24 +456,42 @@ def main():
 
     val_loader = DataLoader(
         val_ds, batch_size=args.batch_size, shuffle=False,
-        collate_fn=optimized_collate_fn, num_workers=DEFAULT_NUM_WORKERS, pin_memory=True
+        collate_fn=optimized_collate_fn, num_workers=args.num_workers, pin_memory=True
     )
 
     # Load sentence transformer model if semantic loss component is used
     sentence_transformer_model = None
     if args.loss_function == 'multi_component' and 'semantic' in args.loss_components:
+        print(f"Semantic loss component detected in: {args.loss_components}")
         try:
+            print("Attempting to import sentence_transformers...")
             from sentence_transformers import SentenceTransformer
-            print("Loading sentence transformer model for semantic loss...")
+            print("✓ sentence_transformers imported successfully")
+            print("Loading sentence transformer model 'all-MiniLM-L6-v2' for semantic loss...")
             sentence_transformer_model = SentenceTransformer('all-MiniLM-L6-v2')
-            print("Sentence transformer model loaded successfully")
-        except ImportError:
-            print("Warning: sentence-transformers not installed. Semantic loss will be disabled.")
-            # Remove semantic from components to prevent errors
+            print("✓ Sentence transformer model loaded successfully")
+            print(f"Model device: {sentence_transformer_model.device}")
+        except ImportError as e:
+            print(f"✗ ImportError: sentence-transformers not installed: {e}")
+            print("  Install with: pip install sentence-transformers")
+            print("  Removing 'semantic' from loss components to prevent training failure")
             args.loss_components = [comp for comp in args.loss_components if comp != 'semantic']
+            print(f"  Updated components: {args.loss_components}")
         except Exception as e:
-            print(f"Warning: Failed to load sentence transformer model: {e}")
+            print(f"✗ Failed to load sentence transformer model: {e}")
+            print(f"  Error type: {type(e).__name__}")
+            print("  This could be due to:")
+            print("    - Network connectivity issues (model download)")
+            print("    - Insufficient memory")
+            print("    - PyTorch compatibility issues")
+            print("  Removing 'semantic' from loss components to prevent training failure")
             args.loss_components = [comp for comp in args.loss_components if comp != 'semantic']
+            print(f"  Updated components: {args.loss_components}")
+    else:
+        if args.loss_function == 'multi_component':
+            print(f"No semantic loss component in: {args.loss_components}")
+        else:
+            print(f"Using {args.loss_function} loss (not multi_component), semantic loss not applicable")
 
     loss_fn, multi_loss = setup_loss_function(args, tokenizer, sentence_transformer_model)
     
@@ -402,39 +505,94 @@ def main():
     
     logger = DistillationLogger(output_dir, loss_components)
     
+    # Initialize GradScaler for AMP if FP16 is enabled and CUDA is available
+    scaler = None
+    if args.fp16:
+        if torch.cuda.is_available() and device.type == 'cuda':
+            scaler = GradScaler()
+            logger.logger.info(f"Automatic Mixed Precision (FP16) enabled on {device}")
+        else:
+            logger.logger.warning(f"FP16 requested but not supported on device {device}, falling back to FP32")
+    else:
+        logger.logger.info(f"Training in FP32 mode on device {device}")
+    
     # Log the training command and save configuration to JSON
     log_training_command(logger, args, phase="START")
     config_file_path = save_training_config_to_json(args, output_dir)
     logger.logger.info(f"Complete training configuration saved to: {config_file_path}")
     
-    early_stopping = EarlyStopping(patience=DEFAULT_EARLY_STOPPING_PATIENCE, logger=logger)
+    # Only initialize early stopping if validation is enabled
+    early_stopping = None
+    if args.validation_frequency > 0:
+        early_stopping = EarlyStopping(patience=args.early_stopping_patience, min_delta=args.early_stopping_min_delta, logger=logger)
+        logger.logger.info(f"Early stopping enabled with validation every {args.validation_frequency} epoch(s), patience={args.early_stopping_patience}")
+    else:
+        logger.logger.info("Validation disabled (validation_frequency=0), early stopping will not be used")
 
     for epoch in range(args.epochs):
-        train_loss = train_epoch(model, train_loader, optimizer, scheduler, logger, loss_fn, multi_loss, args, epoch, device)
+        # Handle epoch sampling: resample data and recreate data loader
+        if args.enable_epoch_sampling:
+            logger.logger.info(f"=== Epoch {epoch+1}: Resampling training data ===")
+            train_ds.resample_for_epoch(epoch)
+            
+            # Recreate the training loader with new data
+            train_loader = DataLoader(
+                train_ds, batch_size=args.batch_size, shuffle=True, 
+                collate_fn=optimized_collate_fn, num_workers=args.num_workers, pin_memory=True
+            )
+            
+            # Update scheduler total steps if this is the first epoch (since data size might differ)
+            if epoch == 0:
+                new_total_steps = len(train_loader) // args.gradient_accumulation_steps * args.epochs
+                logger.logger.info(f"Updated total training steps to {new_total_steps} (based on actual data size)")
         
-        val_loss = validate_epoch(model, val_loader, device, tokenizer, loss_fn, multi_loss, args, epoch, logger)
-        logger.logger.info(f'Epoch {epoch+1} - Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}')
+        train_loss = train_epoch(model, train_loader, optimizer, scheduler, logger, loss_fn, multi_loss, args, epoch, device, scaler)
         
-        early_stopping(val_loss, model, output_dir)
-        if early_stopping.early_stop:
-            print("Early stopping triggered")
-            break
+        # Clear epoch data after training to free memory
+        if args.enable_epoch_sampling:
+            logger.logger.info(f"Clearing epoch {epoch+1} data to free memory")
+            train_ds.clear_epoch_data()
+        
+        # Only validate if validation_frequency > 0 and it's the right epoch or the final epoch
+        should_validate = (args.validation_frequency > 0 and 
+                          ((epoch + 1) % args.validation_frequency == 0 or epoch == args.epochs - 1))
+        
+        if should_validate:
+            val_loss = validate_epoch(model, val_loader, device, tokenizer, loss_fn, multi_loss, args, epoch, logger)
+            logger.logger.info(f'Epoch {epoch+1} - Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}')
+            
+            # Only use early stopping if it's enabled
+            if early_stopping:
+                early_stopping(val_loss, model, output_dir)
+                if early_stopping.early_stop:
+                    print("Early stopping triggered")
+                    break
+        else:
+            logger.logger.info(f'Epoch {epoch+1} - Train Loss: {train_loss:.4f} (validation skipped)')        
             
     final_model_path = os.path.join(output_dir, 'final_model')
     model.save_pretrained(final_model_path)
     tokenizer.save_pretrained(final_model_path)
     logger.logger.info(f"Final model state saved to {final_model_path}")
 
+    # Final evaluation - use best model if available, otherwise use final model
     best_model_path = os.path.join(output_dir, 'best_model')
     if os.path.exists(best_model_path):
         logger.logger.info(f"Loading best model from {best_model_path} for final evaluation.")
-        best_model = AutoModelForSeq2SeqLM.from_pretrained(best_model_path).to(device)
-        
+        evaluation_model = AutoModelForSeq2SeqLM.from_pretrained(best_model_path).to(device)
+        model_type = "Best Model"
+    else:
+        logger.logger.info("No best model found (validation was disabled), using final model for evaluation.")
+        evaluation_model = model
+        model_type = "Final Model"
+    
+    # Only run final evaluation if validation was enabled at least once
+    if args.validation_frequency > 0:
         final_metrics = fast_evaluate(
-            best_model, tokenizer, val_ds, output_dir, device,
+            evaluation_model, tokenizer, val_ds, output_dir, device,
             use_enhanced_metrics=args.use_enhanced_metrics
         )
-        logger.logger.info("--- Final Metrics (from Best Model) ---")
+        logger.logger.info(f"--- Final Metrics (from {model_type}) ---")
         # Format metrics with 3 decimal precision for display
         formatted_metrics = {}
         for key, value in final_metrics.items():
@@ -443,6 +601,13 @@ def main():
             else:
                 formatted_metrics[key] = value
         logger.logger.info(json.dumps(formatted_metrics, indent=2))
+    else:
+        logger.logger.info("Skipping final evaluation since validation was disabled (validation_frequency=0)")
+
+    # Final cleanup for epoch sampling
+    if args.enable_epoch_sampling:
+        logger.logger.info("Final cleanup: clearing any remaining epoch data")
+        train_ds.clear_epoch_data()
 
     # Log the command again at the end for easy reference
     log_training_command(logger, args, phase="END")

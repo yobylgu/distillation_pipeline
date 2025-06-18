@@ -54,6 +54,7 @@ python knowledge_distillation.py \
     --enable_dynamic_weighting \
     --enable_token_weighting \
     --critical_token_weight 2.5 \
-    --use_enhanced_metrics
+    --use_enhanced_metrics \
+    --fp16
 
 echo "Job finished at: $(date)"
