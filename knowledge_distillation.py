@@ -25,15 +25,16 @@ python knowledge_distillation.py \
     --batch_size 4 \
     --epochs 5 \
     --gradient_accumulation_steps 4 \
-    --lr 2e-5 \
+    --lr 5e-5 \
     --warmup_steps 0 \
     --weight_decay 0.01 \
     --alpha 0.7 \
-    --temperature 4.0 \
-    --output_dir results/distillation_run \
+    --output_dir results/test \
     --loss_function multi_component \
     --loss_components focal jsd semantic \
     --enable_dynamic_weighting \
+    --seed 42 \
+    --num_workers 0 \
     --dropout_rate 0.1 \
     --use_enhanced_metrics \
     --validation_frequency 10 \

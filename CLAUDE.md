@@ -13,7 +13,7 @@ This is a knowledge distillation pipeline for Java unit test assertion generatio
 
 - **`knowledge_distillation.py`** - Main student training script with advanced loss functions
 - **`train_codet5_assertions.py`** - Teacher model fine-tuning and data generation
-- **`config/defaults.py`** - Comprehensive configuration system with 190+ configurable parameters across 13 categories
+- **`config/defaults.py`** - Comprehensive configuration system with 100+ configurable parameters across 13 categories
 - **`models/multi_component_loss.py`** - Advanced loss architecture with dynamic weight scheduling
 - **`models/loss_functions.py`** - Defines individual loss components (e.g., Focal, JSD, Semantic, PANS).
 - **`data/dataset.py`** - Dataset handling with logit compression/decompression
@@ -240,7 +240,7 @@ python knowledge_distillation.py --seed 42 --sampling_seed 42 --enable_epoch_sam
 
 ## Configuration System
 
-- **Defaults**: `config/defaults.py` defines 60+ configurable parameters
+- **Defaults**: `config/defaults.py` defines 100+ configurable parameters
 - **CLI Arguments**: Rich command-line interface with validation
 - **Presets**: Multiple training profiles (quick_start, high_quality, memory_constrained)
 - **Dynamic Scheduling**: Unified weight interpolation for all loss components

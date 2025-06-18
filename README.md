@@ -1,10 +1,10 @@
-# Advanced Knowledge Distillation Pipeline for Test Assertion Generation
+# Advanced Knowledge Distillation Pipeline for Java Unit Test Assertion Generation
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-%23EE4C2C.svg?style=flat&logo=PyTorch&logoColor=white)](https://pytorch.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-> **Production-ready modular pipeline** with enterprise-grade training features including learning rate scheduling, gradient accumulation, multi-component loss functions, and dynamic weight adaptation.
+> **Production-ready modular pipeline** with advanced multi-component loss functions, memory-efficient training, and comprehensive reproducibility features for Java unit test assertion generation.
 
 ## 🎯 **Project Overview**
 
@@ -196,6 +196,21 @@ python knowledge_distillation.py \
   --epochs 5 \
   --device auto \
   --loss_function traditional
+
+# Memory-efficient training with epoch sampling (recommended for MacBook Pro 16GB)
+python knowledge_distillation.py \
+  --train_data_path data/codet5p-focal-methods/distillation_data_training.jsonl \
+  --val_data_path data/codet5p-focal-methods/distillation_data_validation.jsonl \
+  --output_dir results/memory_efficient_run \
+  --max_train_samples 1000 \
+  --max_val_samples 200 \
+  --enable_epoch_sampling \
+  --seed 42 --sampling_seed 42 \
+  --batch_size 4 \
+  --epochs 5 \
+  --device auto \
+  --loss_function multi_component \
+  --loss_components focal jsd semantic
 
 # Cluster training (DelftBlue/SLURM)
 sbatch slurm_scripts/student_training_gpu.sh
@@ -577,6 +592,63 @@ results/your_run/
 └── 📊 tensorboard/                   # NEW: TensorBoard logs for visualization
 ```
 
+## 💾 **Memory-Efficient Epoch Sampling**
+
+Advanced feature for resource-constrained environments (e.g., MacBook Pro 16GB):
+
+### **EpochSamplingDataset**
+- **Memory Optimization**: Loads only `max_train_samples` per epoch, clears after each epoch
+- **Random Sampling**: Different random subset from full dataset each epoch
+- **Reproducible**: Uses configurable seed + epoch offset for consistent experiments
+- **Coverage Tracking**: Logs memory usage, sampling statistics, and data coverage
+- **CLI Integration**: `--enable_epoch_sampling --sampling_seed 42`
+
+### **Benefits for M1 MacBook Pro**
+- **RAM Efficiency**: Never loads full 20k dataset, only subset in memory
+- **Wider Exposure**: Sees more diverse data across epochs vs. fixed subset
+- **Better Generalization**: Random sampling reduces overfitting to specific samples
+- **Flexible Training**: Adjust `max_train_samples` based on available memory
+
+### **Usage Pattern**
+```bash
+# Memory-efficient training for large datasets
+python knowledge_distillation.py \
+  --train_data_path data/large_dataset.jsonl \
+  --max_train_samples 2000 \
+  --enable_epoch_sampling \
+  --seed 42 \
+  --epochs 10 \
+  --device auto
+```
+
+## 🎯 **Reproducibility and Seeding**
+
+The pipeline provides comprehensive seeding for fully reproducible training:
+
+### **Seeding System**
+- **Global Seed**: `--seed` parameter controls all random number generators
+- **Automatic Seeding**: Python random, NumPy, PyTorch CPU/GPU generators
+- **CUDA Determinism**: Enables deterministic CUDA operations when available
+- **Data Shuffling**: Consistent data ordering across identical runs
+- **Worker Processes**: Environment variables set for reproducible data loading
+
+### **Usage Examples**
+```bash
+# Use default seed (42) for reproducible training
+python knowledge_distillation.py --seed 42 [other args...]
+
+# Use custom seed for different random behavior
+python knowledge_distillation.py --seed 123 [other args...]
+
+# Epoch sampling with both global and sampling seeds
+python knowledge_distillation.py --seed 42 --sampling_seed 42 --enable_epoch_sampling [other args...]
+```
+
+### **Seed Parameters**
+- **`--seed`**: Global random seed for all operations (default: 42)
+- **`--sampling_seed`**: Specific seed for epoch sampling when `--enable_epoch_sampling` is used
+- **Consistent Results**: Same seed + same config = identical metrics across runs
+
 ## 🔍 **Interpreting Loss-Scale Logs**
 
 The pipeline provides comprehensive logging for monitoring training progress and diagnosing issues. Here's how to interpret the various log outputs:
@@ -813,6 +885,34 @@ results/your_run/
 | Enhanced + PANS | +15% | +10% | 0.78 | 0.89 |
 | Multi-Component | +25% | +15% | 0.82 | 0.92 |
 | Production (32 eff. batch) | +10% | -20% | 0.84 | 0.94 |
+
+## 💻 **M1 MacBook Pro Optimization Guide**
+
+The pipeline is fully compatible with M1 MacBook Pro (16GB RAM). Key recommendations:
+
+### **Optimal Settings for M1**
+```bash
+python knowledge_distillation.py \
+  --max_train_samples 500 \
+  --max_val_samples 50 \
+  --enable_epoch_sampling \
+  --batch_size 2 \
+  --gradient_accumulation_steps 4 \
+  --num_workers 2 \
+  --device auto \
+  --epochs 3
+```
+
+### **Memory Management**
+- Use `--enable_epoch_sampling` to avoid loading full dataset
+- Keep `--max_train_samples` ≤ 1000 for 16GB RAM
+- Set `--num_workers 2` (conservative for M1's CPU cores)
+- Avoid `--fp16` (not supported on CPU)
+
+### **Performance Notes**
+- Training on M1 CPU is slower but functional for development/testing
+- Use cluster with CUDA GPUs for production training
+- Data loading optimizations still provide 2x speedup on M1
 
 ## 🖥️ **Cluster Compatibility (NEW)**
 
