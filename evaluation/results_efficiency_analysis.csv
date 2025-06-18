@@ -1,0 +1,12 @@
+run_name,samples,epochs,hours,loss_function,final_f1,final_bleu,code_quality,ast_validity,f1_per_sample,quality_per_sample,f1_per_hour,efficiency_score,scaling_potential,scaling_recommendations,notes
+1K_v3_Multi,1000,5,1.2,multi_component,0.095,0.047,0.427,0.98,0.095,0.427,0.079,0.28,Very High,Scale to 5-10K samples; Increase epochs to 6-8,"Good efficiency, high AST validity"
+500_Test_Legacy,500,5,2.9,ce+kl+eisl+ast,0.0,0.044,0.276,0.983,0.0,0.552,0.0,0.264,Low,Fix training issues before scaling,"Failed training, high time/sample ratio"
+1K_Stable_5h,1000,5,1.4,multi_component,0.075,0.037,0.35,0.8,0.075,0.35,0.054,0.226,Very High,Scale to 5-10K samples; Increase epochs to 6-8,"Small dataset, reasonable efficiency"
+2.2K_Trident_Basic,2200,4,1.2,focal+jsd+semantic,0.062,0.034,0.381,0.903,0.028,0.173,0.052,0.164,Very High,Scale to 5-10K samples; Increase epochs to 6-8,"Fast convergence, high efficiency"
+5.5K_Trident_8h,5500,8,6.4,focal+jsd+semantic,0.147,0.0,0.49,0.95,0.027,0.089,0.023,0.137,High,Scale to 11000-16500 samples; Add token weighting or PANS loss,"Best F1 score, extended training pays off"
+5.5K_Trident_4h,5500,4,3.0,focal+jsd+semantic,0.067,0.038,0.407,0.965,0.012,0.074,0.022,0.128,Medium,Optimize hyperparameters first,"Medium scale, good AST validity"
+10K_Extended,10000,8,12.0,focal+jsd+semantic+contrastive,0.155,0.069,0.473,0.975,0.016,0.047,0.013,0.12,Medium,Try longer training or larger LR,"Highest F1 and BLEU, best overall performance"
+7K_Production,7000,10,10.1,focal+jsd+semantic+contrastive,0.093,0.048,0.416,0.931,0.013,0.059,0.009,0.118,Medium,Optimize hyperparameters first; Consider removing contrastive loss,"Contrastive loss added, longer training but lower performance"
+14K_Trident_12h,14000,6,12.1,focal+jsd+semantic,0.162,0.075,0.484,0.971,0.012,0.035,0.013,0.115,Low,Architecture changes needed; Add token weighting or PANS loss,"Full Trident loss with semantic component, stable convergence over 6 epochs"
+20K_Focal+JSD_11h,20000,5,11.4,focal+jsd,0.188,0.08,0.496,0.975,0.009,0.025,0.016,0.112,Low,Architecture changes needed,"Large-scale Focal+JSD training, high AST validity, excellent similarity scores"
+12K_Legacy_CE+KL,12000,8,5.5,ce+kl+eisl+ast,0.099,0.049,0.4,0.808,0.008,0.033,0.018,0.098,Low,Architecture changes needed,"Legacy loss, very large dataset, good convergence"

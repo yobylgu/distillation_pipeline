@@ -448,8 +448,8 @@ def main():
     print(analysis_table.to_string(index=False))
     
     # Save to CSV
-    analysis_table.to_csv('/Users/jeroenchu/Downloads/distillation_pipeline/results_efficiency_analysis.csv', index=False)
-    print(f"\n📁 Detailed analysis saved to: results_efficiency_analysis.csv")
+    analysis_table.to_csv('evaluation/results_efficiency_analysis.csv', index=False)
+    print(f"\n📁 Detailed analysis saved to: evaluation/results_efficiency_analysis.csv")
 
 if __name__ == "__main__":
     main()
