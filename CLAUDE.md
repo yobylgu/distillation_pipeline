@@ -79,7 +79,7 @@ python knowledge_distillation.py \
   --batch_size 4 \
   --epochs 8 \
   --gradient_accumulation_steps 4 \
-  --lr 5e-05 \
+  --lr 3e-05 \
   --warmup_steps 275 \
   --weight_decay 0.01 \
   --alpha 0.5 \
@@ -250,10 +250,10 @@ python knowledge_distillation.py --seed 42 --sampling_seed 42 --enable_epoch_sam
 ### Warmup Steps Configuration
 The system uses both `warmup_steps` and `warmup_ratio` parameters:
 - **Direct warmup**: Use `--warmup_steps` for explicit step count (e.g., 275 steps)
-- **Proportional warmup**: Use `--warmup_ratio` for percentage of total steps (e.g., 0.1 = 10%)
+- **Proportional warmup**: Use `--warmup_ratio` for percentage of total steps (e.g., 0.15 = 15%)
 - **Calculation**: When using ratio, actual steps = `warmup_ratio * total_training_steps`
 - **Total steps**: Calculated as `(num_samples / batch_size) * epochs / gradient_accumulation_steps`
-- **Recommendation**: Use explicit `warmup_steps` for predictable scheduling
+- **Recommendation**: Use explicit `warmup_steps` for predictable scheduling (default is 15% of total steps)
 
 ### Alpha Parameter Behavior
 Controls the balance between student and teacher losses:
@@ -276,8 +276,8 @@ Temperature controls the softness of probability distributions:
 - **Effect**: Higher temperatures create softer distributions, lower temperatures sharpen them
 
 ### Learning Rate and Scheduling
-- **Base LR**: 5e-5 works well for CodeT5+ models
-- **Warmup**: Essential for stable training, use 5-10% of total steps
+- **Base LR**: 3e-5 works well for CodeT5+ models (updated default)
+- **Warmup**: Essential for stable training, use 15% of total steps (updated default)
 - **Weight decay**: 0.01 provides good regularization
 - **Gradient clipping**: Automatically enabled at 1.0 to prevent instability
 

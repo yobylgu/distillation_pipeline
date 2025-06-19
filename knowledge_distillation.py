@@ -20,7 +20,7 @@ Example Usage:
 python knowledge_distillation.py \
     --train_data_path data/codet5p-focal-methods/distillation_data_training.jsonl \
     --val_data_path data/codet5p-focal-methods/distillation_data_validation.jsonl \
-    --max_train_samples 5000 \
+    --max_train_samples 200 \
     --max_val_samples 100 \
     --batch_size 4 \
     --epochs 5 \

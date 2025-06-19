@@ -8,7 +8,7 @@ DEFAULT_MAX_OUTPUT_LEN = 128
 DEFAULT_BATCH_SIZE = 4
 DEFAULT_GRADIENT_ACCUMULATION_STEPS = 4
 DEFAULT_EPOCHS = 5
-DEFAULT_LEARNING_RATE = 5e-5
+DEFAULT_LEARNING_RATE = 3e-5
 DEFAULT_ALPHA = 0.5
 DEFAULT_TEMPERATURE = 4.0  # Changed to match documentation and examples
 
@@ -24,10 +24,10 @@ DEFAULT_EARLY_STOPPING_MIN_DELTA = 0.001
 DEFAULT_VALIDATION_FREQUENCY = 1  # Validate every N epochs
 
 # Training optimization defaults  
-DEFAULT_WARMUP_STEPS = 0  # 0 means auto-calculate as 10% of total steps
+DEFAULT_WARMUP_STEPS = 0  # 0 means auto-calculate as 15% of total steps
 DEFAULT_WEIGHT_DECAY = 0.01
 DEFAULT_MAX_GRAD_NORM = 1.0
-DEFAULT_WARMUP_RATIO = 0.1  # 10% of total steps for warmup
+DEFAULT_WARMUP_RATIO = 0.15  # 15% of total steps for warmup
 DEFAULT_ADAM_EPSILON = 1e-8
 
 # Loss function defaults
@@ -144,7 +144,7 @@ WEIGHT_NORMALIZATION = {
 TRAINING_PARAMS = {
     'batch_size': 4,            # Tune: 2-16 depending on GPU memory. Higher = more stable gradients but needs more memory
     'gradient_accumulation_steps': 4,  # Tune: 1-8 to simulate larger batch sizes. Use when batch_size is limited by memory
-    'learning_rate': 5e-5,      # Tune: 1e-6 to 1e-3. Start with 5e-5, increase for faster convergence, decrease for stability
+    'learning_rate': 3e-5,      # Tune: 1e-6 to 1e-3. Start with 3e-5, increase for faster convergence, decrease for stability
     'warmup_steps': 500,        # Tune: 0-2000. Gradual LR increase prevents early instability. Use 10-20% of total steps
     'weight_decay': 0.01,       # Tune: 0.0-0.3. L2 regularization. Increase to reduce overfitting, decrease for underfitting
     'max_grad_norm': 1.0,       # Tune: 0.5-5.0. Gradient clipping. Lower values = more stable training
@@ -165,7 +165,7 @@ OPTIMIZER_PARAMS = {
 
 # Learning Rate Scheduling
 LR_SCHEDULE_PARAMS = {
-    'warmup_ratio': 0.1,        # Tune: 0.0-0.3. Fraction of training for warmup. Higher = more gradual start
+    'warmup_ratio': 0.15,        # Tune: 0.0-0.3. Fraction of training for warmup. Higher = more gradual start
     'cosine_restarts': False,   # Enable cosine annealing with restarts for better convergence
     'num_cycles': 1,            # Tune: 1-5. Number of cosine cycles if using cosine scheduler
     'lr_end_factor': 0.1,       # Tune: 0.01-0.5. Final LR as fraction of initial LR
