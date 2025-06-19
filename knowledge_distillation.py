@@ -320,6 +320,39 @@ def setup_datasets(args, tokenizer):
     return train_ds, val_ds
 
 
+def worker_init_fn(worker_id):
+    """Initialize data loading workers with deterministic seeds."""
+    worker_seed = torch.initial_seed() % 2**32
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
+
+
+def create_deterministic_generator(seed):
+    """Create a deterministic torch Generator."""
+    generator = torch.Generator()
+    generator.manual_seed(seed)
+    return generator
+
+
+def create_deterministic_dataloader(dataset, args, shuffle=False, seed=None):
+    """Create a fully deterministic DataLoader."""
+    if seed is None:
+        seed = args.seed
+    
+    generator = create_deterministic_generator(seed) if shuffle else None
+    
+    return DataLoader(
+        dataset,
+        batch_size=args.batch_size,
+        shuffle=shuffle,
+        generator=generator,
+        worker_init_fn=worker_init_fn,
+        num_workers=args.num_workers,
+        pin_memory=True,
+        collate_fn=optimized_collate_fn
+    )
+
+
 def setup_training(args, train_ds, model):
     """Setup data loaders, optimizer, and scheduler."""
     # For epoch sampling, we'll create the train_loader dynamically each epoch
@@ -330,9 +363,8 @@ def setup_training(args, train_ds, model):
         total_steps = estimated_steps_per_epoch // args.gradient_accumulation_steps * args.epochs
         train_loader = None  # Will be created each epoch
     else:
-        train_loader = DataLoader(
-            train_ds, batch_size=args.batch_size, shuffle=True, 
-            collate_fn=optimized_collate_fn, num_workers=args.num_workers, pin_memory=True
+        train_loader = create_deterministic_dataloader(
+            train_ds, args, shuffle=True, seed=args.seed
         )
         total_steps = len(train_loader) // args.gradient_accumulation_steps * args.epochs
     
@@ -499,9 +531,8 @@ def main():
     train_ds, val_ds = setup_datasets(args, tokenizer)
     train_loader, optimizer, scheduler = setup_training(args, train_ds, model)
 
-    val_loader = DataLoader(
-        val_ds, batch_size=args.batch_size, shuffle=False,
-        collate_fn=optimized_collate_fn, num_workers=args.num_workers, pin_memory=True
+    val_loader = create_deterministic_dataloader(
+        val_ds, args, shuffle=False, seed=args.seed
     )
 
     # Load sentence transformer model if semantic loss component is used
@@ -583,10 +614,9 @@ def main():
             logger.logger.info(f"=== Epoch {epoch+1}: Resampling training data ===")
             train_ds.resample_for_epoch(epoch)
             
-            # Recreate the training loader with new data
-            train_loader = DataLoader(
-                train_ds, batch_size=args.batch_size, shuffle=True, 
-                collate_fn=optimized_collate_fn, num_workers=args.num_workers, pin_memory=True
+            # Recreate the training loader with new data (deterministic)
+            train_loader = create_deterministic_dataloader(
+                train_ds, args, shuffle=True, seed=args.seed + epoch
             )
             
             # Update scheduler total steps if this is the first epoch (since data size might differ)
