@@ -178,6 +178,7 @@ checkpoint/
 # Training results directory - contains large model files and logs
 results/
 !results/.gitkeep
+results_google_colab_tensorboard/
 
 # Trained models (if not in results/)
 models/trained/
