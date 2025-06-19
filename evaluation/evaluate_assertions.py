@@ -21,6 +21,12 @@ Usage:
         --teacher_data data/codet5p-focal-methods/distillation_data_validation.jsonl \
         --student_model_path results/test_training/2025-06-14_12-08-37_Salesforce-codet5p-220m/final_model \
         --student_limit 200
+    
+        
+    python evaluation/evaluate_assertions.py \
+        --teacher_data data/codet5p-focal-methods/distillation_data_validation.jsonl \
+        --student_model_path results_google_colab_tensorboard/final_model \
+        --student_limit 2000
 """
 
 import json
@@ -161,8 +167,8 @@ def main():
                        help='Path to the trained student model directory')
     parser.add_argument('--student_limit', type=int, default=None,
                        help='Maximum number of validation examples to use for student evaluation')
-    parser.add_argument('--device', default='cpu',
-                       help='Device for computation (cpu/cuda)')
+    parser.add_argument('--device', default='auto',
+                       help='Device for computation (cpu/cuda/auto)')
     parser.add_argument('--temperature', type=float, default=2.0,
                        help='Temperature for KL divergence computation')
 
@@ -218,6 +224,10 @@ def main():
         model = AutoModelForSeq2SeqLM.from_pretrained(args.student_model_path)
         tokenizer = AutoTokenizer.from_pretrained(args.student_model_path)
         model.eval()
+        # Auto-detect device like the training script
+        if args.device == 'auto':
+            args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        
         if args.device == 'cuda' and torch.cuda.is_available():
             print("   -> Moving model to CUDA device.")
             model.to('cuda')
