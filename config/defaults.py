@@ -8,7 +8,7 @@ DEFAULT_MAX_OUTPUT_LEN = 128
 DEFAULT_BATCH_SIZE = 4
 DEFAULT_GRADIENT_ACCUMULATION_STEPS = 4
 DEFAULT_EPOCHS = 5
-DEFAULT_LEARNING_RATE = 3e-5
+DEFAULT_LEARNING_RATE = 5e-5
 DEFAULT_ALPHA = 0.5
 DEFAULT_TEMPERATURE = 4.0  # Changed to match documentation and examples
 
@@ -144,7 +144,7 @@ WEIGHT_NORMALIZATION = {
 TRAINING_PARAMS = {
     'batch_size': 4,            # Tune: 2-16 depending on GPU memory. Higher = more stable gradients but needs more memory
     'gradient_accumulation_steps': 4,  # Tune: 1-8 to simulate larger batch sizes. Use when batch_size is limited by memory
-    'learning_rate': 3e-5,      # Tune: 1e-6 to 1e-3. Start with 3e-5, increase for faster convergence, decrease for stability
+    'learning_rate': 5e-5,      # Tune: 1e-6 to 1e-3. Start with 5e-5, increase for faster convergence, decrease for stability
     'warmup_steps': 500,        # Tune: 0-2000. Gradual LR increase prevents early instability. Use 10-20% of total steps
     'weight_decay': 0.01,       # Tune: 0.0-0.3. L2 regularization. Increase to reduce overfitting, decrease for underfitting
     'max_grad_norm': 1.0,       # Tune: 0.5-5.0. Gradient clipping. Lower values = more stable training
@@ -168,7 +168,7 @@ LR_SCHEDULE_PARAMS = {
     'warmup_ratio': 0.15,        # Tune: 0.0-0.3. Fraction of training for warmup. Higher = more gradual start
     'cosine_restarts': False,   # Enable cosine annealing with restarts for better convergence
     'num_cycles': 1,            # Tune: 1-5. Number of cosine cycles if using cosine scheduler
-    'lr_end_factor': 0.1,       # Tune: 0.01-0.5. Final LR as fraction of initial LR
+    'lr_end_factor': 0.2,       # Tune: 0.01-0.5. Final LR as fraction of initial LR (ensures min LR of 1e-5)
 }
 
 # ============================================================================
@@ -388,7 +388,7 @@ TUNING_GUIDELINES = {
         'description': 'Longer training for best results',
         'suggested_changes': {
             'batch_size': 4,
-            'learning_rate': 3e-5,
+            'learning_rate': 5e-5,
             'epochs': 10,
             'warmup_steps': 1000,
             'eval_strategy': 'steps',

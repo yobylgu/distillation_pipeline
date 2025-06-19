@@ -229,7 +229,7 @@ python knowledge_distillation.py \
   --batch_size 4 \
   --gradient_accumulation_steps 8 \
   --epochs 10 \
-  --lr 3e-5 \
+  --lr 5e-5 \
   --warmup_steps 100 \
   --weight_decay 0.01 \
   --loss_function multi_component \
@@ -250,7 +250,7 @@ python knowledge_distillation.py \
   --batch_size 4 \
   --gradient_accumulation_steps 8 \
   --epochs 10 \
-  --lr 3e-5 \
+  --lr 5e-5 \
   --warmup_steps 0 \
   --weight_decay 0.01 \
   --loss_function multi_component \
@@ -290,7 +290,7 @@ python knowledge_distillation.py \
     --batch_size 4 \
     --epochs 5 \
     --gradient_accumulation_steps 4 \
-    --lr 3e-5 \
+    --lr 5e-5 \
     --warmup_steps 50 \
     --weight_decay 0.01 \
     --alpha 0.5 \
@@ -319,7 +319,7 @@ For more configuration options, see `config/defaults.py` or run the script with 
 | `--batch_size` | Training batch size | `4` | `8` |
 | `--gradient_accumulation_steps` | Gradient accumulation | `1` | `4` (effective batch = 32) |
 | `--epochs` | Number of training epochs | `5` | `10` |
-| `--lr` | Learning rate | `3e-5` | `2e-5` |
+| `--lr` | Learning rate | `5e-5` | `3e-5` |
 | `--warmup_steps` | LR warmup steps | `0` (auto) | `100` |
 | `--weight_decay` | Weight decay for optimizer | `0.01` | `0.005` |
 | `--semantic_loss_scale` | Semantic loss scaling factor (β) | `5.0` | `10.0` |
@@ -465,7 +465,7 @@ L_semantic = 1.0 - cosine_similarity(encode(pred), encode(ref))
 --warmup_steps 100
 
 # Custom learning rate (updated default)
---lr 3e-5
+--lr 5e-5
 ```
 
 **Benefits:**

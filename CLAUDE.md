@@ -79,7 +79,7 @@ python knowledge_distillation.py \
   --batch_size 4 \
   --epochs 8 \
   --gradient_accumulation_steps 4 \
-  --lr 3e-05 \
+  --lr 5e-05 \
   --warmup_steps 275 \
   --weight_decay 0.01 \
   --alpha 0.5 \
@@ -276,10 +276,11 @@ Temperature controls the softness of probability distributions:
 - **Effect**: Higher temperatures create softer distributions, lower temperatures sharpen them
 
 ### Learning Rate and Scheduling
-- **Base LR**: 3e-5 works well for CodeT5+ models (updated default)
+- **Base LR**: 5e-5 works well for CodeT5+ models (updated default)
 - **Warmup**: Essential for stable training, use 15% of total steps (updated default)
 - **Weight decay**: 0.01 provides good regularization
 - **Gradient clipping**: Automatically enabled at 1.0 to prevent instability
+- **LR Scheduling**: Linear decay with minimum floor at 1e-5 (20% of initial LR)
 
 ### Batch Size and Memory Management
 - **Effective batch size**: `batch_size * gradient_accumulation_steps`
