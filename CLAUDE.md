@@ -18,7 +18,7 @@ This is a knowledge distillation pipeline for Java unit test assertion generatio
 - **`models/loss_functions.py`** - Defines individual loss components (e.g., Focal, JSD, Semantic, PANS).
 - **`data/dataset.py`** - Dataset handling with logit compression/decompression
 - **`evaluation/evaluators.py`** - Code-specific evaluation metrics used during training.
-- **`evaluation/evaluate_assertions.py`** - Script for post-hoc evaluation with teacher/student comparison and comprehensive metrics including Code Quality Score (weighted: 30% CodeBLEU + 20% AST validity + 20% PANS + 15% F1 + 10% semantic similarity + 5% token accuracy).
+- **`evaluation/evaluate_assertions.py`** - Script for post-hoc evaluation with teacher/student comparison and comprehensive metrics including Code Quality Score (optimized for test assertions: 25% CodeBLEU + 25% CodeSearchNet semantic similarity + 20% AST validity + 20% token similarity + 10% token accuracy).
 - **`utils/` directory**: Contains various helper modules, including:
     - `training_utils.py`: Utilities for dynamic hyperparameter scheduling and loss function setup.
     - `logging_utils.py`: Handles logging for training and evaluation.
@@ -336,7 +336,8 @@ python train_codet5_assertions.py \
 - **Advanced Trident loss** - New default loss function with focal, JSD, and semantic components
 - **Unified weight scheduling** - Single `WEIGHT_SCHEDULING` config supports all loss components
 - **Sentence transformers** - Required for semantic similarity component (auto-installed)
-  - Default model: 'all-MiniLM-L6-v2' for fast inference
+  - **CodeSearchNet model**: 'embaas/codesearchnet-minilm-l6' for code-aware semantic similarity (used in both training and evaluation)
+  - Legacy model: 'all-MiniLM-L6-v2' for general text similarity (replaced)
   - Alternative models: 'all-mpnet-base-v2' for higher quality
 - **No formal build system** - manual dependency management with requirements.txt
 - **No testing infrastructure** - missing unit tests and CI/CD

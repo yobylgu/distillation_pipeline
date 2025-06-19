@@ -439,14 +439,33 @@ class EnhancedAssertionEvaluator:
     - CodeBLEU (primary code metric)
     - PANS (Position-Aware N-gram Similarity)
     - AST validity (syntactic correctness)
-    - Semantic similarity (custom code-aware)
+    - Semantic similarity (token-based, legacy)
+    - Semantic similarity embedding (CodeSearchNet-based, recommended)
     - Token accuracy (exact matching)
+    - Similarity (Jaccard token overlap)
     - F1, Precision, Recall
+    
+    New Code Quality Score (optimized for test assertions):
+    25% CodeBLEU + 25% Semantic Embedding + 20% AST Validity + 20% Similarity + 10% Token Accuracy
     """
     
     def __init__(self, tokenizer):
         self.tokenizer = tokenizer
-        self.metrics = ['codebleu', 'bleu', 'ast_validity', 'semantic_similarity', 'token_accuracy', 'pans', 'f1', 'precision', 'recall']
+        self.metrics = ['codebleu', 'bleu', 'ast_validity', 'semantic_similarity', 'semantic_similarity_embedding', 'similarity', 'token_accuracy', 'pans', 'f1', 'precision', 'recall']
+        
+        # Initialize CodeSearchNet embedding model for semantic similarity
+        try:
+            from sentence_transformers import SentenceTransformer
+            self.embedding_model = SentenceTransformer('embaas/codesearchnet-minilm-l6')
+            self.embedding_available = True
+        except ImportError:
+            print("⚠️ Warning: sentence-transformers not installed. Embedding-based semantic similarity disabled.")
+            self.embedding_model = None
+            self.embedding_available = False
+        except Exception as e:
+            print(f"⚠️ Warning: Could not load CodeSearchNet model: {e}")
+            self.embedding_model = None
+            self.embedding_available = False
     
     def evaluate_ast_validity(self, predictions: List[str]) -> float:
         """
@@ -529,6 +548,58 @@ class EnhancedAssertionEvaluator:
             
             total_similarity += max_sim
         
+        return total_similarity / len(predictions) if len(predictions) > 0 else 0.0
+    
+    def evaluate_semantic_similarity_embedding(self, predictions: List[str], 
+                                             references: List[List[str]]) -> float:
+        """
+        Evaluate semantic similarity using CodeSearchNet embeddings.
+        
+        This method uses embaas/codesearchnet-minilm-l6 model which is specifically
+        trained on code-text pairs, providing better semantic understanding for
+        test assertions that mix code syntax with descriptive intent.
+        
+        Args:
+            predictions: List of predicted assertions
+            references: List of reference assertion lists
+            
+        Returns:
+            Average cosine similarity score (0.0-1.0, higher is better)
+        """
+        if not self.embedding_available or len(predictions) != len(references):
+            return 0.0
+            
+        import torch
+        import torch.nn.functional as F
+        
+        total_similarity = 0.0
+        
+        for pred, refs in zip(predictions, references):
+            if not refs or not pred.strip():
+                continue
+                
+            try:
+                # Get embeddings
+                pred_embedding = self.embedding_model.encode([pred], convert_to_tensor=True)
+                ref_embeddings = self.embedding_model.encode(refs, convert_to_tensor=True)
+                
+                # Compute cosine similarity with all references, take max
+                similarities = F.cosine_similarity(
+                    pred_embedding.unsqueeze(0), 
+                    ref_embeddings, 
+                    dim=1
+                )
+                max_similarity = torch.max(similarities).item()
+                
+                # Ensure similarity is in [0, 1] range
+                max_similarity = max(0.0, min(1.0, max_similarity))
+                total_similarity += max_similarity
+                
+            except Exception as e:
+                # Fallback to 0.0 if embedding computation fails
+                print(f"Warning: Embedding computation failed for prediction: {e}")
+                total_similarity += 0.0
+                
         return total_similarity / len(predictions) if len(predictions) > 0 else 0.0
     
     def evaluate_token_accuracy(self, predictions: List[str], 
@@ -614,6 +685,7 @@ class EnhancedAssertionEvaluator:
         # Core evaluation metrics
         metrics['ast_validity'] = round(self.evaluate_ast_validity(predictions), 6)
         metrics['semantic_similarity'] = round(self.evaluate_semantic_similarity(predictions, references), 6)
+        metrics['semantic_similarity_embedding'] = round(self.evaluate_semantic_similarity_embedding(predictions, references), 6)
         metrics['token_accuracy'] = round(self.evaluate_token_accuracy(predictions, references), 6)
         
         # Enhanced metrics from evaluate_assertions.py
@@ -633,13 +705,27 @@ class EnhancedAssertionEvaluator:
         metrics['avg_prediction_length'] = round(total_pred_tokens / len(predictions), 2)
         metrics['avg_reference_length'] = round(total_ref_tokens / len(references), 2)
         
-        # Enhanced code quality score (weighted combination emphasizing code-specific metrics)
+        # General similarity score (Jaccard-based token overlap)
+        similarity_scores = []
+        for pred, refs in zip(predictions, references):
+            best_sim = 0.0
+            for ref in refs:
+                pred_tokens = set(pred.split())
+                ref_tokens = set(ref.split())
+                if pred_tokens or ref_tokens:
+                    jaccard_sim = len(pred_tokens & ref_tokens) / len(pred_tokens | ref_tokens)
+                    best_sim = max(best_sim, jaccard_sim)
+            similarity_scores.append(best_sim)
+        metrics['similarity'] = round(sum(similarity_scores) / len(similarity_scores) if similarity_scores else 0.0, 6)
+        
+        # Enhanced code quality score optimized for test assertion generation
+        # Uses CodeSearchNet embeddings for better semantic understanding
         quality_score = (
-            0.35 * metrics['codebleu'] +           # Primary: CodeBLEU for code generation
-            0.25 * metrics['ast_validity'] +       # Critical: syntactic correctness
-            0.15 * metrics['f1'] +                 # Important: overall performance
-            0.15 * metrics['semantic_similarity'] + # Important: semantic matching
-            0.05 * metrics['token_accuracy']       # Supporting: exact matching
+            0.25 * metrics['codebleu'] +                      # Code structure & syntax
+            0.25 * metrics['semantic_similarity_embedding'] + # Deep semantic understanding (CodeSearchNet)
+            0.20 * metrics['ast_validity'] +                  # Syntactic correctness (critical for usable code)
+            0.20 * metrics['similarity'] +                    # Token-level overlap (Jaccard)
+            0.10 * metrics['token_accuracy']                  # Exact matching precision
         )
         metrics['code_quality_score'] = round(quality_score, 6)
         

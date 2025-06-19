@@ -543,8 +543,8 @@ def main():
             print("Attempting to import sentence_transformers...")
             from sentence_transformers import SentenceTransformer
             print("✓ sentence_transformers imported successfully")
-            print("Loading sentence transformer model 'all-MiniLM-L6-v2' for semantic loss...")
-            sentence_transformer_model = SentenceTransformer('all-MiniLM-L6-v2')
+            print("Loading sentence transformer model 'embaas/codesearchnet-minilm-l6' for semantic loss...")
+            sentence_transformer_model = SentenceTransformer('embaas/codesearchnet-minilm-l6')
             print("✓ Sentence transformer model loaded successfully")
             print(f"Model device: {sentence_transformer_model.device}")
         except ImportError as e:
