@@ -40,6 +40,14 @@ def format_command_from_args(args):
         f"    --max_output_len {args.max_output_len}",
         f"    --model_name {args.model_name}",
         f"    --seed {args.seed}",
+        f"    --device {args.device}",
+        f"    --num_workers {args.num_workers}",
+        f"    --early_stopping_patience {args.early_stopping_patience}",
+        f"    --early_stopping_min_delta {args.early_stopping_min_delta}",
+        f"    --loss_norm_momentum {args.loss_norm_momentum}",
+        f"    --loss_norm_warmup_steps {args.loss_norm_warmup_steps}",
+        f"    --critical_token_weight {args.critical_token_weight}",
+        f"    --sampling_seed {args.sampling_seed}",
     ])
     
     # Add boolean flags
@@ -47,6 +55,14 @@ def format_command_from_args(args):
         command_parts.append("    --enable_dynamic_weighting")
     if args.use_enhanced_metrics:
         command_parts.append("    --use_enhanced_metrics")
+    if args.fp16:
+        command_parts.append("    --fp16")
+    if args.disable_loss_normalization:
+        command_parts.append("    --disable_loss_normalization")
+    if args.enable_token_weighting:
+        command_parts.append("    --enable_token_weighting")
+    if args.enable_epoch_sampling:
+        command_parts.append("    --enable_epoch_sampling")
     
     # Add optional arguments if they differ from defaults
     if args.validation_frequency != 1:
@@ -105,7 +121,7 @@ def save_training_config_to_json(args, output_dir, filename="training_config.jso
         "metadata": {
             "timestamp": datetime.now().isoformat(),
             "script_version": "knowledge_distillation.py",
-            "config_format_version": "1.0"
+            "config_format_version": "2.0"
         },
         "data": {
             "train_data_path": args.train_data_path,
@@ -128,6 +144,8 @@ def save_training_config_to_json(args, output_dir, filename="training_config.jso
             "warmup_steps": args.warmup_steps,
             "weight_decay": args.weight_decay,
             "validation_frequency": args.validation_frequency,
+            "early_stopping_patience": args.early_stopping_patience,
+            "early_stopping_min_delta": args.early_stopping_min_delta,
             "seed": args.seed
         },
         "distillation": {
@@ -136,7 +154,23 @@ def save_training_config_to_json(args, output_dir, filename="training_config.jso
             "loss_function": args.loss_function,
             "loss_components": args.loss_components,
             "loss_weights": args.loss_weights,
-            "enable_dynamic_weighting": args.enable_dynamic_weighting
+            "enable_dynamic_weighting": args.enable_dynamic_weighting,
+            "disable_loss_normalization": args.disable_loss_normalization,
+            "loss_norm_momentum": args.loss_norm_momentum,
+            "loss_norm_warmup_steps": args.loss_norm_warmup_steps
+        },
+        "hardware": {
+            "device": args.device,
+            "fp16": args.fp16,
+            "num_workers": args.num_workers
+        },
+        "token_weighting": {
+            "enable_token_weighting": args.enable_token_weighting,
+            "critical_token_weight": args.critical_token_weight
+        },
+        "memory_optimization": {
+            "enable_epoch_sampling": args.enable_epoch_sampling,
+            "sampling_seed": args.sampling_seed
         },
         "evaluation": {
             "use_enhanced_metrics": args.use_enhanced_metrics
