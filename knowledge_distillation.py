@@ -653,16 +653,10 @@ def main():
     tokenizer.save_pretrained(final_model_path)
     logger.logger.info(f"Final model state saved to {final_model_path}")
 
-    # Final evaluation - use best model if available, otherwise use final model
-    best_model_path = os.path.join(output_dir, 'best_model')
-    if os.path.exists(best_model_path):
-        logger.logger.info(f"Loading best model from {best_model_path} for final evaluation.")
-        evaluation_model = AutoModelForSeq2SeqLM.from_pretrained(best_model_path).to(device)
-        model_type = "Best Model"
-    else:
-        logger.logger.info("No best model found (validation was disabled), using final model for evaluation.")
-        evaluation_model = model
-        model_type = "Final Model"
+    # Final evaluation - always use final model
+    logger.logger.info("Using final model for final evaluation.")
+    evaluation_model = model
+    model_type = "Final Model"
     
     # Only run final evaluation if validation was enabled at least once
     if args.validation_frequency > 0:
