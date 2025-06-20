@@ -13,16 +13,23 @@ This is a knowledge distillation pipeline for Java unit test assertion generatio
 
 - **`knowledge_distillation.py`** - Main student training script with advanced loss functions
 - **`train_codet5_assertions.py`** - Teacher model fine-tuning and data generation
-- **`config/defaults.py`** - Comprehensive configuration system with 100+ configurable parameters across 13 categories
+- **`config/defaults.py`** - Comprehensive configuration system with 190+ configurable parameters across 11 categories
 - **`models/multi_component_loss.py`** - Advanced loss architecture with dynamic weight scheduling
 - **`models/loss_functions.py`** - Defines individual loss components (e.g., Focal, JSD, Semantic, PANS).
+- **`models/codebert_encoder.py`** - Frozen CodeBERT encoder for contrastive learning embeddings.
+- **`models/triplet_sampler.py`** - In-batch triplet sampling for contrastive learning.
+- **`models/embedding_cache.py`** - LRU cache with TTL for performance optimization of embeddings.
 - **`data/dataset.py`** - Dataset handling with logit compression/decompression
 - **`evaluation/evaluators.py`** - Code-specific evaluation metrics used during training.
-- **`evaluation/evaluate_assertions.py`** - Script for post-hoc evaluation with teacher/student comparison and comprehensive metrics including Code Quality Score (optimized for test assertions: 25% CodeBLEU + 25% CodeSearchNet semantic similarity + 20% AST validity + 20% token similarity + 10% token accuracy).
+- **`evaluation/evaluate_assertions.py`** - Script for post-hoc evaluation with teacher/student comparison and comprehensive metrics including Code Quality Score (optimized for test assertions: 25% CodeBLEU + 25% semantic similarity + 20% AST validity + 20% token similarity + 10% token accuracy).
 - **`utils/` directory**: Contains various helper modules, including:
     - `training_utils.py`: Utilities for dynamic hyperparameter scheduling and loss function setup.
     - `logging_utils.py`: Handles logging for training and evaluation.
     - `compress.py`: Manages compression and decompression of teacher logits.
+    - `device_utils.py`: Device (CPU/GPU) management and automatic detection.
+    - `token_weighting.py`: Token weighting implementation for critical assertion tokens.
+    - `command_utils.py`: Utilities for logging training commands and configurations.
+- **`scripts/analyse_loss_scaling.py`** - Analysis tool for loss component magnitudes and scaling recommendations.
 
 ## Key Commands
 
@@ -240,7 +247,7 @@ python knowledge_distillation.py --seed 42 --sampling_seed 42 --enable_epoch_sam
 
 ## Configuration System
 
-- **Defaults**: `config/defaults.py` defines 100+ configurable parameters
+- **Defaults**: `config/defaults.py` defines 190+ configurable parameters across 11 categories
 - **CLI Arguments**: Rich command-line interface with validation
 - **Presets**: Multiple training profiles (quick_start, high_quality, memory_constrained)
 - **Dynamic Scheduling**: Unified weight interpolation for all loss components
