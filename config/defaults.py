@@ -109,18 +109,18 @@ WEIGHT_SCHEDULING = {
         'end': 0.15     # Moderate AST growth for syntax
     },
     
-    # Trident components (Focal + JSD + Semantic + Contrastive)
+    # Trident components (Focal + JSD + Semantic)
     'focal': {
         'start': 0.3,   # Strong focal loss start for hard example focus
         'end': 0.25     # Reduced to balance with semantic and contrastive learning
     },
     'jsd': {
         'start': 0.6,   # High JSD priority for stable knowledge transfer
-        'end': 0.35     # Maintained but allows semantic and contrastive growth
+        'end': 0.3     # Maintained but allows semantic and contrastive growth
     },
     'semantic': {
-        'start': 0.05,  # Low semantic start to establish foundations
-        'end': 0.25     # Major semantic growth for advanced understanding
+        'start': 0.1,  # Low semantic start to establish foundations
+        'end': 0.3     # Major semantic growth for advanced understanding
     },
     'contrastive': {
         'start': 0.1,   # PRD v1: Start with moderate contrastive weight

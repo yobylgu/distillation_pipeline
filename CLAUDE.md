@@ -337,7 +337,7 @@ python train_codet5_assertions.py \
 - **Advanced Trident loss** - New default loss function with focal, JSD, and semantic components
 - **Unified weight scheduling** - Single `WEIGHT_SCHEDULING` config supports all loss components
 - **Sentence transformers** - Required for semantic similarity component (auto-installed)
-  - **CodeSearchNet model**: 'embaas/codesearchnet-minilm-l6' for code-aware semantic similarity (used in both training and evaluation)
+  - **CodeSearchNet model**: 'flax-sentence-embeddings/st-codesearch-distilroberta-base' for code-aware semantic similarity (used in both training and evaluation)
   - Legacy model: 'all-MiniLM-L6-v2' for general text similarity (replaced)
   - Alternative models: 'all-mpnet-base-v2' for higher quality
 - **No formal build system** - manual dependency management with requirements.txt

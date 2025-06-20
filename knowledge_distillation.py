@@ -543,8 +543,8 @@ def main():
             print("Attempting to import sentence_transformers...")
             from sentence_transformers import SentenceTransformer
             print("✓ sentence_transformers imported successfully")
-            print("Loading sentence transformer model 'embaas/codesearchnet-minilm-l6' for semantic loss...")
-            sentence_transformer_model = SentenceTransformer('embaas/codesearchnet-minilm-l6')
+            print("Loading sentence transformer model 'flax-sentence-embeddings/st-codesearch-distilroberta-base' for semantic loss...")
+            sentence_transformer_model = SentenceTransformer('flax-sentence-embeddings/st-codesearch-distilroberta-base')
             print("✓ Sentence transformer model loaded successfully")
             print(f"Model device: {sentence_transformer_model.device}")
         except ImportError as e:

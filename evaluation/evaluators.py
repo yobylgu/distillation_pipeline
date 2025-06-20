@@ -456,7 +456,7 @@ class EnhancedAssertionEvaluator:
         # Initialize CodeSearchNet embedding model for semantic similarity
         try:
             from sentence_transformers import SentenceTransformer
-            self.embedding_model = SentenceTransformer('embaas/codesearchnet-minilm-l6')
+            self.embedding_model = SentenceTransformer('flax-sentence-embeddings/st-codesearch-distilroberta-base')
             self.embedding_available = True
         except ImportError:
             print("⚠️ Warning: sentence-transformers not installed. Embedding-based semantic similarity disabled.")
@@ -555,7 +555,7 @@ class EnhancedAssertionEvaluator:
         """
         Evaluate semantic similarity using CodeSearchNet embeddings.
         
-        This method uses embaas/codesearchnet-minilm-l6 model which is specifically
+        This method uses flax-sentence-embeddings/st-codesearch-distilroberta-base model which is specifically
         trained on code-text pairs, providing better semantic understanding for
         test assertions that mix code syntax with descriptive intent.
         
@@ -584,11 +584,14 @@ class EnhancedAssertionEvaluator:
                 ref_embeddings = self.embedding_model.encode(refs, convert_to_tensor=True)
                 
                 # Compute cosine similarity with all references, take max
-                similarities = F.cosine_similarity(
-                    pred_embedding.unsqueeze(0), 
-                    ref_embeddings, 
-                    dim=1
-                )
+                # pred_embedding: [1, 768], ref_embeddings: [num_refs, 768]
+                if ref_embeddings.size(0) == 1:
+                    # Single reference case
+                    similarities = F.cosine_similarity(pred_embedding, ref_embeddings, dim=1)
+                else:
+                    # Multiple references case - expand prediction to match batch size
+                    pred_expanded = pred_embedding.expand(ref_embeddings.size(0), -1)
+                    similarities = F.cosine_similarity(pred_expanded, ref_embeddings, dim=1)
                 max_similarity = torch.max(similarities).item()
                 
                 # Ensure similarity is in [0, 1] range
