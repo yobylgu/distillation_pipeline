@@ -66,24 +66,14 @@ python -c "import torch, transformers; print('✓ Installation successful')"
 Train teacher model and generate distillation data:
 
 ```bash
-# Train teacher model
+# Train teacher model and generate distillation data
 python train_codet5_assertions.py \
   --train_data_path data/raw_training.jsonl \
   --val_data_path data/raw_validation.jsonl \
-  --output_dir teacher_models/codet5_teacher
+  --output_dir teacher_models/codet5_teacher \
+  --create_distillation_dataset
 
 # This generates distillation_data_training.jsonl and distillation_data_validation.jsonl
-```
-
-**Expected JSONL format:**
-```json
-{
-  "focal_method": "public boolean isEmpty() { return size == 0; }",
-  "test_method": "@Test public void testIsEmpty() { ... }",
-  "assertion": "assertTrue(list.isEmpty());",
-  "teacher_logits_compressed": "<compressed-logits>",
-  "teacher_prediction": "assertTrue(list.isEmpty());"
-}
 ```
 
 ### Basic Training
@@ -106,9 +96,6 @@ python knowledge_distillation.py \
   --enable_epoch_sampling \
   --device auto
 
-# Cluster training
-sbatch slurm_scripts/student_training_gpu.sh
-```
 
 ### Advanced Training
 
@@ -121,7 +108,7 @@ python knowledge_distillation.py \
   --loss_components focal jsd semantic \
   --enable_dynamic_weighting \
   --enable_token_weighting \
-  --critical_token_weight 2.5 \
+  --critical_token_weight 2 \
   --batch_size 4 \
   --gradient_accumulation_steps 8 \
   --epochs 10 \
