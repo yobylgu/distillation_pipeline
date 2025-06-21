@@ -391,45 +391,6 @@ def compute_kl_divergence(teacher_logits: np.ndarray, student_logits: np.ndarray
         return float('inf')
 
 
-def compute_knowledge_retention_score(teacher_logits: Optional[np.ndarray],
-                                    student_logits: Optional[np.ndarray],
-                                    teacher_f1: float, student_f1: float,
-                                    temperature: float = 2.0) -> float:
-    """
-    Compute Knowledge Retention Score (KRS) combining output agreement and task performance.
-
-    Formula: KRS = 0.6 * (1 - KL_Divergence_Normalized) + 0.4 * (Student_F1 / Teacher_F1)
-
-    Args:
-        teacher_logits: Teacher model logits
-        student_logits: Student model logits
-        teacher_f1: Teacher F1 score
-        student_f1: Student F1 score
-        temperature: Temperature for KL divergence computation
-
-    Returns:
-        KRS score (0.0-1.0, higher is better)
-    """
-    # Task Performance Preservation component
-    if teacher_f1 > 0:
-        performance_ratio = min(student_f1 / teacher_f1, 1.0)  # Cap at 1.0
-    else:
-        performance_ratio = 0.0
-
-    # Output Agreement component
-    if teacher_logits is not None and student_logits is not None:
-        kl_div = compute_kl_divergence(teacher_logits, student_logits, temperature)
-        # Normalize KL divergence (assume max reasonable KL is 10.0)
-        kl_normalized = min(kl_div / 10.0, 1.0)
-        output_agreement = 1.0 - kl_normalized
-    else:
-        print("Warning: Could not compute KL divergence, using performance ratio only")
-        output_agreement = performance_ratio  # Fallback to performance ratio
-
-    # Combine components
-    krs = 0.6 * output_agreement + 0.4 * performance_ratio
-    return round(krs, 6)
-
 
 class EnhancedAssertionEvaluator:
     """

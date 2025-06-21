@@ -184,8 +184,7 @@ T(epoch) = 4.0 * (1.5/4.0)^(epoch/total_epochs)
    - **Standard Mode**: Loads fixed subset at initialization (sequential or up to max_samples)
    - **Epoch Sampling Mode**: Loads different random subset each epoch for memory efficiency
 3. **Training**: Multi-component loss with gradient accumulation and dynamic scheduling
-4. **Evaluation**: Primary metrics (Code Quality Score, Semantic Similarity), plus CodeBLEU, PANS, AST validity, F1, Precision, Recall, Knowledge Retention Score (KRS)
-   - **Knowledge Retention Score**: `KRS = 0.6 * output_agreement + 0.4 * performance_ratio`
+4. **Evaluation**: Primary metrics (Code Quality Score, Semantic Similarity), plus CodeBLEU, PANS, AST validity, F1, Precision, Recall
 5. **Output**: Trained models, comprehensive logs, and evaluation reports in `results/`
 
 ## Memory-Efficient Epoch Sampling

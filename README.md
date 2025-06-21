@@ -149,7 +149,6 @@ python evaluation/evaluate_assertions.py \
 
 **Key Metrics:**
 - **Code Quality Score**: Weighted combination of CodeBLEU, AST validity, semantic similarity
-- **Knowledge Retention Score**: Measures distillation effectiveness 
 - **Semantic Similarity**: Meaning preservation using sentence transformers
 
 ## Memory-Efficient Training
