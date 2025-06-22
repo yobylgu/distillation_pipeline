@@ -21,7 +21,7 @@ This is a knowledge distillation pipeline for Java unit test assertion generatio
 - **`models/embedding_cache.py`** - LRU cache with TTL for performance optimization of embeddings.
 - **`data/dataset.py`** - Dataset handling with logit compression/decompression
 - **`evaluation/evaluators.py`** - Code-specific evaluation metrics used during training.
-- **`evaluation/evaluate_assertions.py`** - Script for post-hoc evaluation with teacher/student comparison and comprehensive metrics including Code Quality Score (optimized for test assertions: 25% CodeBLEU + 25% semantic similarity + 20% AST validity + 20% token similarity + 10% token accuracy).
+- **`evaluation/evaluate_assertions.py`** - Script for post-hoc evaluation with teacher/student comparison and comprehensive metrics including Code Quality Score (optimized for test assertions: 30% semantic similarity + 30% CodeBLEU + 20% AST validity + 20% token accuracy).
 - **`utils/` directory**: Contains various helper modules, including:
     - `training_utils.py`: Utilities for dynamic hyperparameter scheduling and loss function setup.
     - `logging_utils.py`: Handles logging for training and evaluation.
@@ -116,7 +116,21 @@ python knowledge_distillation.py \
 # Post-hoc evaluation with teacher/student comparison
 python evaluation/evaluate_assertions.py \
   --teacher_data data/codet5p-focal-methods/distillation_data_validation.jsonl \
-  --student_model_path results/run_name/final_model
+  --student_model_path results/run_name/final_model \
+  --teacher_limit 300 \
+  --student_limit 300
+
+# Evaluation with custom embedding model for semantic similarity
+python evaluation/evaluate_assertions.py \
+  --teacher_data data/codet5p-focal-methods/distillation_data_validation.jsonl \
+  --student_model_path results/run_name/final_model \
+  --embedding_model jinaai/jina-embeddings-v2-base-code \
+  --teacher_limit 500
+
+# Teacher-only evaluation (quick testing)
+python evaluation/evaluate_assertions.py \
+  --teacher_data data/codet5p-focal-methods/distillation_data_validation.jsonl \
+  --teacher_limit 100
 ```
 
 ## Loss Function Architecture
@@ -471,6 +485,63 @@ results/YYYY-MM-DD_HH-MM-SS_model-name/
 - **Weighted Loss Functions**: Enhanced CE and focal loss with per-token weights
 - **Performance Benefits**: +2-5 pp improvement in critical token accuracy
 - **CLI Integration**: `--enable_token_weighting --critical_token_weight 2.5`
+
+## Unified Evaluation System (Updated)
+
+The evaluation system has been completely unified between training and post-hoc evaluation for consistent metrics:
+
+### **New Metric Naming Convention**
+- **`semantic_similarity`**: Primary embedding-based metric using CodeSearchNet/Jina models
+- **`lexical_similarity`**: Token-based overlap analysis (formerly `semantic_similarity`)
+- **`code_quality_score`**: Enhanced 4-component formula
+
+### **Enhanced Code Quality Score**
+```python
+code_quality_score = (
+    0.30 * semantic_similarity +    # Deep semantic understanding (embeddings)
+    0.30 * codebleu +              # Code structure and syntax quality
+    0.20 * ast_validity +          # Syntactic correctness (parseable Java)
+    0.20 * token_accuracy          # Token-level precision
+)
+```
+
+**Key Benefits:**
+- **60% weight** on semantic/structural understanding (rewards `assertFalse(list.isEmpty())` vs `assertTrue(list.size() > 0)`)
+- **40% weight** on syntactic correctness and precision
+- **Consistent between training and post-hoc evaluation**
+
+### **Configurable Embedding Models**
+Post-hoc evaluation supports multiple embedding models for semantic similarity:
+
+- **Default**: `'flax-sentence-embeddings/st-codesearch-distilroberta-base'` (CodeSearchNet)
+- **Code-Specific**: `'jinaai/jina-embeddings-v2-base-code'` (30+ programming languages)
+- **General**: `'sentence-transformers/all-MiniLM-L6-v2'` (lightweight)
+
+### **Evaluation Parameters**
+- **`--teacher_limit`**: Limit teacher evaluation examples for faster testing
+- **`--student_limit`**: Limit student evaluation examples 
+- **`--embedding_model`**: Choose semantic similarity model
+- **`--device auto`**: Automatic device detection
+
+### **Usage Examples**
+```bash
+# Quick evaluation (300 examples each)
+python evaluation/evaluate_assertions.py \
+  --teacher_data data/validation.jsonl \
+  --student_model_path results/model \
+  --teacher_limit 300 --student_limit 300
+
+# Code-specific embeddings
+python evaluation/evaluate_assertions.py \
+  --teacher_data data/validation.jsonl \
+  --embedding_model jinaai/jina-embeddings-v2-base-code \
+  --teacher_limit 500
+
+# Teacher-only evaluation
+python evaluation/evaluate_assertions.py \
+  --teacher_data data/validation.jsonl \
+  --teacher_limit 100
+```
 
 ## Modular Architecture
 

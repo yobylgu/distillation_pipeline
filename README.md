@@ -144,12 +144,21 @@ For all options: `python knowledge_distillation.py --help`
 # Post-hoc evaluation comparing teacher and student models
 python evaluation/evaluate_assertions.py \
   --teacher_data data/distillation_data_validation.jsonl \
-  --student_model_path results/run_name/final_model
+  --student_model_path results/run_name/final_model \
+  --teacher_limit 300 \
+  --student_limit 300
+
+# With custom embedding model for semantic similarity
+python evaluation/evaluate_assertions.py \
+  --teacher_data data/distillation_data_validation.jsonl \
+  --student_model_path results/run_name/final_model \
+  --embedding_model jinaai/jina-embeddings-v2-base-code
 ```
 
 **Key Metrics:**
-- **Code Quality Score**: Weighted combination of CodeBLEU, AST validity, semantic similarity
-- **Semantic Similarity**: Meaning preservation using sentence transformers
+- **Code Quality Score**: 30% semantic + 30% CodeBLEU + 20% AST validity + 20% token accuracy
+- **Semantic Similarity**: CodeSearchNet embeddings for meaning preservation
+- **Lexical Similarity**: Token-level overlap analysis
 
 ## Memory-Efficient Training
 
