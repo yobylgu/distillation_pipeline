@@ -400,19 +400,18 @@ class EnhancedAssertionEvaluator:
     - CodeBLEU (primary code metric)
     - PANS (Position-Aware N-gram Similarity)
     - AST validity (syntactic correctness)
-    - Semantic similarity (token-based, legacy)
-    - Semantic similarity embedding (CodeSearchNet-based, recommended)
+    - Lexical similarity (token-based overlap analysis)
+    - Semantic similarity (CodeSearchNet embedding-based, primary metric)
     - Token accuracy (exact matching)
-    - Similarity (Jaccard token overlap)
     - F1, Precision, Recall
     
     New Code Quality Score (optimized for test assertions):
-    25% CodeBLEU + 25% Semantic Embedding + 20% AST Validity + 20% Similarity + 10% Token Accuracy
+    30% Semantic Similarity + 30% CodeBLEU + 20% AST Validity + 20% Token Accuracy
     """
     
     def __init__(self, tokenizer):
         self.tokenizer = tokenizer
-        self.metrics = ['codebleu', 'bleu', 'ast_validity', 'semantic_similarity', 'semantic_similarity_embedding', 'similarity', 'token_accuracy', 'pans', 'f1', 'precision', 'recall']
+        self.metrics = ['codebleu', 'bleu', 'ast_validity', 'lexical_similarity', 'semantic_similarity', 'token_accuracy', 'pans', 'f1', 'precision', 'recall']
         
         # Initialize CodeSearchNet embedding model for semantic similarity
         try:
@@ -464,12 +463,12 @@ class EnhancedAssertionEvaluator:
                 
         return valid_count / total_count if total_count > 0 else 0.0
     
-    def evaluate_semantic_similarity(self, predictions: List[str], 
+    def evaluate_lexical_similarity(self, predictions: List[str], 
                                    references: List[List[str]]) -> float:
         """
-        Evaluate semantic similarity using token overlap and structural analysis.
+        Evaluate lexical similarity using token overlap and structural analysis.
         
-        This is a code-specific semantic similarity that considers:
+        This is a code-specific lexical similarity that considers:
         - Variable name similarity
         - Method call patterns
         - Assertion structure
@@ -511,7 +510,7 @@ class EnhancedAssertionEvaluator:
         
         return total_similarity / len(predictions) if len(predictions) > 0 else 0.0
     
-    def evaluate_semantic_similarity_embedding(self, predictions: List[str], 
+    def evaluate_semantic_similarity(self, predictions: List[str], 
                                              references: List[List[str]]) -> float:
         """
         Evaluate semantic similarity using CodeSearchNet embeddings.
@@ -648,8 +647,8 @@ class EnhancedAssertionEvaluator:
         
         # Core evaluation metrics
         metrics['ast_validity'] = round(self.evaluate_ast_validity(predictions), 6)
+        metrics['lexical_similarity'] = round(self.evaluate_lexical_similarity(predictions, references), 6)
         metrics['semantic_similarity'] = round(self.evaluate_semantic_similarity(predictions, references), 6)
-        metrics['semantic_similarity_embedding'] = round(self.evaluate_semantic_similarity_embedding(predictions, references), 6)
         metrics['token_accuracy'] = round(self.evaluate_token_accuracy(predictions, references), 6)
         
         # Enhanced metrics from evaluate_assertions.py
@@ -669,27 +668,17 @@ class EnhancedAssertionEvaluator:
         metrics['avg_prediction_length'] = round(total_pred_tokens / len(predictions), 2)
         metrics['avg_reference_length'] = round(total_ref_tokens / len(references), 2)
         
-        # General similarity score (Jaccard-based token overlap)
-        similarity_scores = []
-        for pred, refs in zip(predictions, references):
-            best_sim = 0.0
-            for ref in refs:
-                pred_tokens = set(pred.split())
-                ref_tokens = set(ref.split())
-                if pred_tokens or ref_tokens:
-                    jaccard_sim = len(pred_tokens & ref_tokens) / len(pred_tokens | ref_tokens)
-                    best_sim = max(best_sim, jaccard_sim)
-            similarity_scores.append(best_sim)
-        metrics['similarity'] = round(sum(similarity_scores) / len(similarity_scores) if similarity_scores else 0.0, 6)
+        # This lexical similarity is now handled by evaluate_lexical_similarity method above
+        # Keeping the old Jaccard logic here for backward compatibility in debug output
         
         # Enhanced code quality score optimized for test assertion generation
         # Uses CodeSearchNet embeddings for better semantic understanding
+        # New 4-component formula: 30% semantic + 30% code structure + 20% syntactic + 20% token precision
         quality_score = (
-            0.25 * metrics['codebleu'] +                      # Code structure & syntax
-            0.25 * metrics['semantic_similarity_embedding'] + # Deep semantic understanding (CodeSearchNet)
+            0.30 * metrics['semantic_similarity'] +           # Deep semantic understanding (CodeSearchNet)
+            0.30 * metrics['codebleu'] +                      # Code structure & syntax quality
             0.20 * metrics['ast_validity'] +                  # Syntactic correctness (critical for usable code)
-            0.20 * metrics['similarity'] +                    # Token-level overlap (Jaccard)
-            0.10 * metrics['token_accuracy']                  # Exact matching precision
+            0.20 * metrics['token_accuracy']                  # Token-level precision
         )
         metrics['code_quality_score'] = round(quality_score, 6)
         
@@ -800,7 +789,7 @@ def fast_evaluate(model, tokenizer, dataset, out_dir, device=None, epoch=None, u
             writer.writerows(results)
 
         summary = {k: round(sum(r[k] for r in results) / len(results), 3) 
-                  for k in ['precision', 'recall', 'f1', 'accuracy', 'similarity', 'codebleu']}
+                  for k in ['precision', 'recall', 'f1', 'accuracy', 'codebleu']}
         summary['exact_match_total'] = sum(r['exact_match_count'] for r in results)
         summary['epoch'] = epoch or 'final'
         

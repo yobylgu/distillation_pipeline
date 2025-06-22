@@ -38,13 +38,23 @@ from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 from datetime import datetime
 
 # Import existing metrics from evaluators.py
-from evaluators import (
-    compute_codebleu,
-    compute_pans_score,
-    compute_f1_precision_recall,
-    EnhancedAssertionEvaluator,
-    fast_evaluate
-)
+try:
+    from .evaluators import (
+        compute_codebleu,
+        compute_pans_score,
+        compute_f1_precision_recall,
+        EnhancedAssertionEvaluator,
+        fast_evaluate
+    )
+except ImportError:
+    # Handle direct execution
+    from evaluators import (
+        compute_codebleu,
+        compute_pans_score,
+        compute_f1_precision_recall,
+        EnhancedAssertionEvaluator,
+        fast_evaluate
+    )
 
 # Additional imports for fast evaluation
 import sys
@@ -56,6 +66,68 @@ class MockTokenizer:
     def __init__(self):
         self.pad_token_id = 0
         self.eos_token_id = 1
+
+def evaluate_semantic_similarity_embedding(predictions: List[str], references: List[List[str]], embedding_model: str) -> float:
+    """
+    Evaluate semantic similarity using configurable sentence transformer embeddings.
+    
+    Args:
+        predictions: List of predicted assertions
+        references: List of reference assertion lists
+        embedding_model: Sentence transformer model name
+        
+    Returns:
+        Average cosine similarity score (0.0-1.0, higher is better)
+    """
+    try:
+        from sentence_transformers import SentenceTransformer
+        import torch
+        import torch.nn.functional as F
+    except ImportError:
+        print("⚠️ Warning: sentence-transformers not installed. Semantic similarity disabled.")
+        return 0.0
+        
+    if len(predictions) != len(references):
+        return 0.0
+    
+    try:
+        # Load the specified embedding model
+        model = SentenceTransformer(embedding_model)
+        total_similarity = 0.0
+        
+        for pred, refs in zip(predictions, references):
+            if not refs or not pred.strip():
+                continue
+                
+            try:
+                # Get embeddings
+                pred_embedding = model.encode([pred], convert_to_tensor=True, show_progress_bar=False)
+                ref_embeddings = model.encode(refs, convert_to_tensor=True, show_progress_bar=False)
+                
+                # Compute cosine similarity with all references, take max
+                if ref_embeddings.size(0) == 1:
+                    # Single reference case
+                    similarities = F.cosine_similarity(pred_embedding, ref_embeddings, dim=1)
+                else:
+                    # Multiple references case - expand prediction to match batch size
+                    pred_expanded = pred_embedding.expand(ref_embeddings.size(0), -1)
+                    similarities = F.cosine_similarity(pred_expanded, ref_embeddings, dim=1)
+                max_similarity = torch.max(similarities).item()
+                
+                # Ensure similarity is in [0, 1] range
+                max_similarity = max(0.0, min(1.0, max_similarity))
+                total_similarity += max_similarity
+                
+            except Exception as e:
+                # Fallback to 0.0 if embedding computation fails
+                print(f"Warning: Embedding computation failed for prediction: {e}")
+                total_similarity += 0.0
+                
+        return total_similarity / len(predictions) if len(predictions) > 0 else 0.0
+        
+    except Exception as e:
+        print(f"Warning: Could not load embedding model {embedding_model}: {e}")
+        return 0.0
 
 def load_teacher_data(file_path: str) -> List[Dict]:
     """Load teacher data from JSONL file."""
@@ -75,7 +147,7 @@ def load_teacher_data(file_path: str) -> List[Dict]:
                     print(f"Warning: Error processing line {line_num}: {e}")
     return data
 
-def evaluate_model(predictions: List[str], references: List[List[str]]) -> Dict[str, float]:
+def evaluate_model(predictions: List[str], references: List[List[str]], embedding_model: str = 'flax-sentence-embeddings/st-codesearch-distilroberta-base') -> Dict[str, float]:
     """
     Evaluate a model's predictions using comprehensive metrics.
 
@@ -128,8 +200,11 @@ def evaluate_model(predictions: List[str], references: List[List[str]]) -> Dict[
     results['exact_match_total'] = exact_matches
     results['exact_match_ratio'] = round(exact_matches / len(predictions), 7)
 
-    # Semantic similarity (proper calculation using token overlap and structural analysis)
-    results['semantic_similarity'] = round(evaluator.evaluate_semantic_similarity(predictions, references), 7)
+    # Lexical similarity (token overlap and structural analysis)
+    results['lexical_similarity'] = round(evaluator.evaluate_lexical_similarity(predictions, references), 7)
+    
+    # Semantic similarity (embedding-based using configurable model)
+    results['semantic_similarity'] = round(evaluate_semantic_similarity_embedding(predictions, references, embedding_model), 7)
 
     # General similarity score (average of multiple similarity measures)
     similarity_scores = []
@@ -146,8 +221,14 @@ def evaluate_model(predictions: List[str], references: List[List[str]]) -> Dict[
         similarity_scores.append(best_sim)
     results['similarity'] = round(sum(similarity_scores) / len(similarity_scores) if similarity_scores else 0.0, 7)
 
-    # Code quality score (composite of AST validity and semantic similarity)
-    results['code_quality_score'] = round((results['ast_validity'] + results['semantic_similarity']) / 2, 7)
+    # Enhanced code quality score matching evaluators.py implementation
+    # 30% semantic + 30% code structure + 20% syntactic + 20% token precision
+    results['code_quality_score'] = round(
+        0.30 * results['semantic_similarity'] +
+        0.30 * results['codebleu'] +
+        0.20 * results['ast_validity'] +
+        0.20 * results['token_accuracy'], 7
+    )
 
     # Average prediction and reference lengths
     results['avg_prediction_length'] = round(sum(len(pred.split()) for pred in predictions) / len(predictions), 7)
@@ -167,10 +248,14 @@ def main():
                        help='Path to the trained student model directory')
     parser.add_argument('--student_limit', type=int, default=None,
                        help='Maximum number of validation examples to use for student evaluation')
+    parser.add_argument('--teacher_limit', type=int, default=None,
+                       help='Maximum number of validation examples to use for teacher evaluation')
     parser.add_argument('--device', default='auto',
                        help='Device for computation (cpu/cuda/auto)')
     parser.add_argument('--temperature', type=float, default=2.0,
                        help='Temperature for KL divergence computation')
+    parser.add_argument('--embedding_model', default='flax-sentence-embeddings/st-codesearch-distilroberta-base',
+                       help='Sentence transformer model for semantic similarity evaluation')
 
     args = parser.parse_args()
 
@@ -181,7 +266,12 @@ def main():
         print("❌ No valid validation data found")
         return
 
-    print(f"📊 Loaded {len(validation_data)} validation examples")
+    # Apply teacher limit if specified
+    if args.teacher_limit is not None:
+        validation_data = validation_data[:args.teacher_limit]
+        print(f"📊 Loaded {len(validation_data)} validation examples (limited by --teacher_limit)")
+    else:
+        print(f"📊 Loaded {len(validation_data)} validation examples")
 
     # Extract teacher predictions and ground truth references from the validation data
     teacher_predictions = []
@@ -201,7 +291,7 @@ def main():
         ground_truth_references.append(refs)
 
     print("\n=== TEACHER MODEL EVALUATION ===")
-    teacher_results = evaluate_model(teacher_predictions, ground_truth_references)
+    teacher_results = evaluate_model(teacher_predictions, ground_truth_references, args.embedding_model)
     print(f"AST Validity Rate: {teacher_results['ast_validity']*100:.1f}%")
     print(f"Semantic Equivalence Score (PANS): {teacher_results['pans']:.7f}")
     print(f"CodeBLEU Score: {teacher_results['codebleu']:.7f}")
@@ -209,8 +299,8 @@ def main():
     print(f"Precision: {teacher_results['precision']:.7f}")
     print(f"Recall: {teacher_results['recall']:.7f}")
     print(f"Token Accuracy: {teacher_results['token_accuracy']:.7f}")
+    print(f"Lexical Similarity: {teacher_results['lexical_similarity']:.7f}")
     print(f"Semantic Similarity: {teacher_results['semantic_similarity']:.7f}")
-    print(f"Similarity: {teacher_results['similarity']:.7f}")
     print(f"Code Quality Score: {teacher_results['code_quality_score']:.7f}")
     print(f"Exact Match Total: {teacher_results['exact_match_total']}")
     print(f"Exact Match Ratio: {teacher_results['exact_match_ratio']:.7f}")
@@ -278,8 +368,8 @@ def main():
         print(f"Precision: {metrics['precision']:.7f}")
         print(f"Recall: {metrics['recall']:.7f}")
         print(f"Token Accuracy: {metrics['token_accuracy']:.7f}")
+        print(f"Lexical Similarity: {metrics.get('lexical_similarity', 0.0):.7f}")
         print(f"Semantic Similarity: {metrics['semantic_similarity']:.7f}")
-        print(f"Similarity: {metrics['similarity']:.7f}")
         print(f"Code Quality Score: {metrics['code_quality_score']:.7f}")
         print(f"Exact Match Total: {metrics['exact_match_total']}")
         print(f"Exact Match Ratio: {metrics['exact_match_ratio']:.7f}")
@@ -307,7 +397,7 @@ def main():
         t_ast, s_ast = teacher_results['ast_validity'], metrics['ast_validity']
         gap_ast = (s_ast - t_ast) * 100  # percentage points difference
         print(f"   ├─ AST Validity Gap: {gap_ast:+.1f} percentage points ({s_ast*100:.1f}% vs {t_ast*100:.1f}%)")
-        for key in ['codebleu', 'pans', 'semantic_similarity', 'similarity', 'code_quality_score']:
+        for key in ['codebleu', 'pans', 'lexical_similarity', 'semantic_similarity', 'code_quality_score']:
             if key in teacher_results and key in metrics:
                 t, s = teacher_results[key], metrics[key]
                 if t > 0:
